@@ -130,7 +130,7 @@ ReadLink		JMP _ReadLink			;904b
 SIGNATURE	!text "HDD"		; 904E - for driver recognition
 
 OFF_LBA_IMAGE	!byte 104,$00,$00,$00	; int32 - LBA offset to current image	9051
-OFF_LBA_SIZE	!byte $00,$fe,$00,$00	; int32 - total size of current image	9055
+OFF_LBA_SIZE	!byte $00,$ff,$00,$00	; int32 - total size of current image	9055
 
 CUR_IMAGE	!word 0			; int16 - number of current image	9059
 MAX_IMAGE	!word 0			; int16 - total number of images	905B
