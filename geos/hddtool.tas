@@ -9,13 +9,14 @@
 ;05.08.01 - HDD (2ND VERSION)
 ;06.08.01 - ACME port, REU installation ability, GEOS64/128 common
 ;08.08.01 - maximized bastard
-
 ;15-23.08.01 - hddtool based on inithdd
-;BUG: when formatting partition # >256 only lower byte will be shown
+;23.07.02 - even bigger partitions
+
 ;LOOKOUT: non-settable constants in driver, search for <---,!!!
+;LOOKOUT: MASTERSLAVE unimplemented, always set to MASTER
 
 ;constant value
-HDD_PARTITIONSIZE_L	= $3c00
+HDD_PARTITIONSIZE_L	= $ff00
 HDD_PARTITIONSIZE_H	= 0
 HDD_OFFS_1STPART_L	= 1
 HDD_OFFS_1STPART_H	= 0
@@ -230,7 +231,7 @@ choosepartition	!text BOLDON, "Enter number of partition", 0
 getsectors	!text BOLDON, "Enter number of sectors:", 0
 getheads	!text BOLDON, "Enter number of heads:", 0
 getcyl		!text BOLDON, "Enter number of cyliders:", 0
-getdefpart	!text BOLDON, "Enter number of default part.:", 0
+getdefpart	!text BOLDON, "Number of default part. (0=1st) ?", 0
 
 numpart1	!text BOLDON, "There are "
 numpartshex	!text "00000 partitions",0
@@ -246,7 +247,7 @@ hddinfoallpart	!text "00000 partitions, "
 hddinfodefpart	!text "00000 default.",0
 
 about1		!text BOLDON, "HDDTool and IDE interface", 0
-about2		!text "by Maciej Witkowiak, VIII 2001", 0
+about2		!text "by Maciej Witkowiak, VII 2002", 0
 
 spindown1	!text BOLDON, "Number of 5s. units to poweroff:", 0
 
@@ -286,7 +287,7 @@ InstallHDDDriver
 		; check if interface is present
 		+LoadB cia3ddra, $ff	; setup ports
 		+LoadB cia3ddrb, 0
-		+LoadB cia3pa, $f5	; try to read IDE_Status
+		+LoadB cia3pa, $f4	; try to read IDE_Status
 		+MoveB cia3pb, r0L
 		+LoadB cia3pa, $ff
 		+CmpBI cia3pa, $ff	; should be same
@@ -315,10 +316,11 @@ SkipInstall	LDA hddDevice		; set hdd as current device
 		+MoveW partitionsize, DISK_BASE+$55		;<---
 		+MoveW partitionsize+2, DISK_BASE+$57		;<---
 		+MoveW maxpartition, DISK_BASE+$5B		;<---
+		+LoadB DISK_BASE+$5D, 0		;<--- !!! MASTERSLAVE marker
 		LDA addrmode
 		BEQ SkipCHSInst
-		+MoveB sectors, DISK_BASE+$5D			;<---
-		+MoveW spc, DISK_BASE+$5E			;<---
+		+MoveB sectors, DISK_BASE+$5E			;<---
+		+MoveW spc, DISK_BASE+$5F			;<---
 SkipCHSInst	LDA defpartition	; setup default partition and push data into REU
 		LDX defpartition+1
 		JSR SetPartition
@@ -724,7 +726,7 @@ HDDFormatExe
 .loop		+LoadW r11, 200
 		+LoadB r1H, 30
 		+MoveW a2, r0
-		+LoadB r0H, 0
+;		+LoadB r0H, 0			;??? what was that for?
 		LDA #SET_SURPRESS | SET_LEFTJUST
 		JSR PutDecimal
 		LDA a2L				; erase all partitions one by one
@@ -857,7 +859,6 @@ ReadAutoConfig	JSR SetMBRParams
 		BNE .rdautfound		; was error - previous value is correct
 		INC cylinders+1
 		LDA cylinders+1
-;		+CmpBI cylinders+1, 5	;never more than 1024
 		BNE .rdautloop
 .rdautfound	DEC cylinders+1
 		RTS
@@ -1122,35 +1123,21 @@ NoSetErasePart
                 STA curDirHead,X
                 LDA #%11111111
                 STA dir2Head,X
-;		STA dir3Head,X
-;		STA dir4Head,X
-;		STA dir5Head,X
-;		STA dir6Head,X
-;		STA dir7Head,X
-;		STA dir8Head,X
-		STA $9c00,x	;<---
-		STA $9b00,x	;...
-		STA $9a00,x
-		STA $9900,x
-		STA $9800,x
-		STA $9700,x	;<---
                 LDA #0
                 STA diskBlkBuf,X
                 INX
 		BNE .erase_1
                 DEX
                 STX diskBlkBuf+1
-                +LoadB r6L, DIR_TRACK
-                +LoadB r6H, 0
-                JSR AllocateBlock
-                +LoadB r6H, 1
-                JSR AllocateBlock
-		+LoadB r6H, 120
-.erase_2	JSR AllocateBlock
-		INC r6H
-		+CmpBI r6H, 128
-		BNE .erase_2
-		
+
+		+LoadB r1L, HDD_DIR_TRACK
+		+LoadB r1H, HDD_DIR_DATA	; first directory sector
+		JSR WriteBuff
+
+		+LoadB r1L, HDD_DIR_TRACK
+		+LoadB r1H, HDD_DIR_BORDER
+		JSR WriteBuff			; border directory
+
 		LDY #0			; set disk name
 .erase_3	LDA diskname,y
 		BEQ .erase_4
@@ -1173,18 +1160,36 @@ NoSetErasePart
 		INY
 		LDA a0H
 		STA curDirHead + OFF_DISK_NAME, y
+		+LoadW curDirHead + OFF_TO_BAM, HDD_MAXBLK_FREE
+		+LoadB curDirHead + OFF_OP_TR_SC, HDD_DIR_TRACK
+		+LoadB curDirHead + OFF_OP_TR_SC+1, HDD_DIR_BORDER
 
-		JSR PutDirHead
+		+LoadB r1L, HDD_DIR_TRACK
+		+LoadB r1H, 0
+		STA r4L
+		+LoadB r4H, (>curDirHead)
+		JSR PutBlock			; directory header
 
-		+LoadB r1L, DIR_TRACK
-		+LoadB r1H, 1           ; first directory sector
-		JSR WriteBuff
+		+LoadB r1L, HDD_DIR_TRACK
+    		+LoadB r1H, HDD_DIR_BAM1ST
+		+LoadB r4H, (>dir2Head)
+.erase_bam	JSR PutBlock			; all BAMs
+		INC r1H
+		LDA r1H
+		BNE .erase_bam
 
-		+LoadB r1L, DIR_TRACK
-		+LoadB r1H, 127
-		JSR WriteBuff		; border directory
-
-		RTS
+		JSR GetDirHead
+                +LoadB r6L, HDD_DIR_TRACK
+                +LoadB r6H, 0
+                JSR AllocateBlock
+                +LoadB r6H, HDD_DIR_DATA
+                JSR AllocateBlock
+		+LoadB r6H, HDD_DIR_BORDER
+.erase_2	JSR AllocateBlock
+		INC r6H
+		LDA r6H
+		BNE .erase_2
+		JMP PutDirHead
 
 		!zone Math
 ;---------------------------------------
