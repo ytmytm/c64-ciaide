@@ -141,7 +141,7 @@ You will also have to connect pins 2+14 and 3+13 within 74'139. Those lines - A8
 and A9 can be taken from CPU (U6) - pins 15 and 16 (respectively)
 
 As you see you get 5 I/O page signals - for $D100, $D200, $D300, $D500,
-$D600 and $D700. Pages $D5, $D6 or $D7 are generally a good thing for
+$D600 and $D700. Pages $D5, $D6 or $D7 are generally a good place for
 connecting second SID - you just solder one SID on another, without
 pins 1-4 and 8. Then you solder two capacitors to pins 1-2 and 3-4
 and /CS line from our address decoder to pin 8. If you want to have
