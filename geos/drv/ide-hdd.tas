@@ -36,6 +36,7 @@
 ;20.8.2001 - changed signature to "HDD"
 ;22.8.2001 - replaced LBA2CHS by shorter and faster routine
 ;23.8.2001 - added CUR_IMAGE/MAX_IMAGE fields
+;26.8.2001 - rewritten SetNextFree
 
 ;proposed new layout:
 ;128 sectors per track
@@ -306,79 +307,87 @@ CFB_tab		!byte $00, $01, $01, $02, $01, $02, $02, $03
 		!byte $01, $02, $02, $03, $02, $03, $03, $04
 ;---------------------------------------
 ;in: r3=T&S, out: r3 = r6 = newT&S, pass through AllocateBlock
-__SetNextFree	+MoveB r3H, r6H
-		+MoveB r3L, r6L
-		STA zpBuff+1
+__SetNextFree	+MoveB r3L, r6L	; save track number
+		LDY r3L		; normalize track
+		BEQ SNF_1
+		DEY
+SNF_1		; track $12 -> BAMblock $1, offset $20, ignore sector
+		TYA
+		LSR:LSR:LSR:LSR
+		TAX		; X - BAMblock #
+		TYA
+		ASL:ASL:ASL:ASL
+		TAY		; Y - start offset
 
-SNF_Loop	JSR FindBAMBit
-		BEQ SNF_LpCnt
-		JMP AlloBlk0
-SNF_LpCnt	STY SNF_Search+2
-		CPY #>curDirHead
+SNF_Loop	LDA BAMHeaders, x
+		STA SNF_Search+2
+		CMP #>curDirHead
 		BEQ SNF_Half
 		LDA #0
-		!byte $2c
-SNF_Half	LDA #128+OFF_TO_BAM
-		STA zpBuff
+		BEQ SNF_Cont
+SNF_Half	STY r3L		; last sector
+		LDA #OFF_TO_BAM	; fix offset
+		+add r3L
+		TAY
+		LDA #128+OFF_TO_BAM	; fix ending
+SNF_Cont	STA zpBuff	; last offset
 
-SNF_Search	LDA curDirHead,x
+SNF_Search	LDA curDirHead, y
 		BNE SNF_FoundByte
-		INX
-		CPX zpBuff
+		INY
+		CPY zpBuff
 		BNE SNF_Search
-		CPX #128+OFF_TO_BAM	; last BAM?
+		CPY #128+OFF_TO_BAM	; last sector?
 		BEQ SNF_DiskFull
-		LDA r6L			; no - start from next round 16 tracks
-		AND #%11110000		; (forces BAM change)
-		+addv 17
-		STA r6L
-		+LoadB r6H, 0
-		BEQ SNF_Loop
+
+		INX
+		BNE SNF_Loop
 
 SNF_DiskFull	LDX #INSUFF_SPACE
 		RTS
 
-SNF_FoundByte	LDY #0
-SNF_Search2	LSR
-		BCS SNF_FoundBit
-		INY
-		CPY #7
-		BNE SNF_Search2
-		; r7H - headerNum (in high nybble)
-		; X - offset (real or +OFF_TO_BAM if headerNum==last)
-		; Y - bit number
-SNF_FoundBit	+CmpBI SNF_Search+2, >curDirHead
-		BNE SNF_FndBitCont
-		TXA
-		+subv OFF_TO_BAM
-		TAX
-SNF_FndBitCont	TXA
-		LSR
-		LSR
-		LSR
-		LSR
-		ORA r7H
-		STA r3L
-		INC r3L
-		TXA
-		AND #%00001111
-		ASL
-		ASL
-		ASL
-		STA r3H
+SNF_FoundByte	PHA
+		STX r3L		; save params
+		+CmpBI zpBuff, 128+OFF_TO_BAM	; last sector?
+		BNE SNF_Cont2
 		TYA
-		+add r3H
-		STA r3H
+		+subv OFF_TO_BAM		; fix offset
+		TAY
+SNF_Cont2	STY r3H
+		LDY #0
+		PLA
+SNF_Loop2	LSR
+		BCS SNF_FoundBit
+		INY		;:CPY #7 but saved 2 bytes here
+		CPY #7
+		BNE SNF_Loop2
+SNF_FoundBit	STY r7H		; store bitnum
+		; r3L - track, r3H - offset in BAM
+		; r3L+h-->track, r3h+bitnum (Y here)-->sector
+		; reconstruct here, copy to r6 and call _AllocateBlock
+		; check for directory case
 
-		+CmpBI r3L, DIR_TRACK	; if we finished on DIRTRACK
+		ASL r3L:ASL r3L:ASL r3L:ASL r3L
+		LDA r3H
+		AND #%11110000
+		LSR:LSR:LSR:LSR
+		ORA r3L
+		STA r3L
+		INC r3L		; got track #
+		+CmpBI r3L, DIR_TRACK	; if finished on directory
 		BNE SNF_End
-		+CmpBI zpBuff+1, DIR_TRACK	; we must have started on DIRTRACK
+		+CmpBI r6L, DIR_TRACK	; we must have started on that track...
 		BEQ SNF_End
-		+LoadB r3L, DIR_TRACK+1		; if not - start again from next track
+		INC r3L			; if not - start again from next track
 		+LoadB r3H, 0
 		JMP __SetNextFree
 
-SNF_End		+MoveW r3, r6
+SNF_End		LDA r3H
+		AND #%00001111
+		ASL:ASL:ASL
+		+add r7H
+		STA r3H
+		+MoveW r3, r6
 
 _AllocateBlock	JSR FindBAMBit
 		BEQ AlloBAMErr

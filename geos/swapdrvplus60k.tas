@@ -1,0 +1,53 @@
+; Maciej 'YTM/Elysium' Witkowiak
+;
+
+;		*= $9F57	;$9EAA - GEOS 64
+				;$9F57 - GEOS 128
+		LDX #0
+		RTS
+flagDevAdr	BRK
+		LDX #0
+		RTS
+		BRK
+		LDX #0
+		RTS
+		BRK
+		LDX #0
+		LDX #0
+		RTS
+;---------------------------------------
+Swapper		LDX #0
+SwpCpyLoop	LDA SwapperStart,x
+		STA $0100,x
+		INX
+		CPX #SwapperEnd-SwapperStart
+		BNE SwpCpyLoop
+		JMP $0100
+
+SwapperStart	+PushW r0
+		LDY #0
+		STY r0L
+		STY $D100
+		LDA #>DISK_BASE
+		STA r0H
+Swp_Loop	LDA (r0),Y
+		TAX
+		LDA #$80
+		STA $D100
+		LDA (r0),Y
+		PHA
+		TXA
+		STA (r0),Y
+		LDA #$00
+		STA $D100
+		PLA
+		STA (r0),y
+		INY
+		BNE Swp_Loop
+		INC r0H
+		LDA r0H
+		CMP #>DISK_BASE+$0e00
+		BNE Swp_Loop
+		+PopW r0
+		RTS
+SwapperEnd

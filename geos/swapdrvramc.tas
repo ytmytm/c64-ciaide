@@ -1,0 +1,49 @@
+; Maciej 'YTM/Elysium' Witkowiak
+;
+;11.12.1997
+;- first part turns off REU routines
+;- second part is swapper
+;17.05.1998
+;loading six blocks from last sectors of
+;directory
+
+;swapLength	= 5
+;RC_firstFreeBlock  = 1		; 0-241, space to swap disk driver on RamCart
+
+;		*= $9F57	;$9EAA - GEOS 64
+				;$9F57 - GEOS 128
+		LDX #0
+		RTS
+flagDevAdr	BRK
+		LDX #0
+		RTS
+		BRK
+		LDX #0
+		RTS
+		BRK
+		LDX #0
+		LDX #0
+		RTS
+;---------------------------------------
+Swapper		+PushW r0
+		LDY #0
+		STY r0L
+		STY $DE01
+		LDA #>DISK_BASE
+		STA r0H
+		LDX #RC_firstFreeBlock
+Swp_Main	STX $DE00
+Swp_Loop	LDA (r0),Y
+		PHA
+		LDA $DF00,Y
+		STA (r0),Y
+		PLA
+		STA $DF00,Y
+		INY
+		BNE Swp_Loop
+		INC r0H
+		INX
+		CPX #RC_firstFreeBlock+14
+		BNE Swp_Main
+		+PopW r0
+		RTS

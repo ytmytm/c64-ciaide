@@ -21,7 +21,9 @@ C64/128 with REU
 C128 without REU and up to 2 different types of drives (e.g. 1571+1541 or 2*1571+1541)
     - no problems.
 C64 without REU
-    - this is unsupported platform right now
+    - memory expansion is required, currently supported are:
+	+60K
+	RamCart 64/128K
 
 
 
@@ -54,8 +56,7 @@ able to get to drive C. It can be found at
 ftp://ftp.elysium.pl/tools/geos_software/updates/
 
 HDDTool is for configuring HDD and installing driver, it is an Auto-Exec
-HDDSwitch is for changing virtual partitions, it is a DeskAccessory, it
-    can't be used on C64 though...
+HDDSwitch is for changing virtual partitions, it is a DeskAccessory
 
 
 
@@ -74,6 +75,11 @@ hddtool is executed. The first partition has number '0', the last partition is
 '65535'. Maxpartition in 'hdd info' option will show you how many partitions
 you have. E.g. '5 partitions, 1 default' means that you have 5 partitions total,
 the last one has number 4 and the second one is active.
+
+hddswitch is a DeskAcessory for changing virtual disks. On C64 it can't be used
+from HDD - store it on disk in another drive and run from there. It is not
+possible to execute hddswitch from HDD on C64 because it would crash the
+system.
 
 
 

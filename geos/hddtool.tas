@@ -12,7 +12,6 @@
 
 ;15-23.08.01 - hddtool based on inithdd
 ;LOOKOUT: non-settable constants in driver, search for <---,!!!
-;TODO: C64 swapper stuff
 
 ;constant value
 HDD_PARTITIONSIZE_L	= $3c00
@@ -721,7 +720,7 @@ HDDFormatExe
 		!byte 30
 		!text BOLDON, "Formatting partition:",0
 
-.loop		+LoadW r11, 120 | DOUBLE_W
+.loop		+LoadW r11, 200
 		+LoadB r1H, 30
 		+MoveW a2, r0
 		+LoadB r0H, 0
@@ -737,8 +736,8 @@ HDDFormatExe
 		BNE .loop
 		+SubVW 1, maxpartition
 
-		+LoadW r3, 0
-		+LoadW r4, 240
+		+LoadW r3, 0			; clean up screen
+		+LoadW r4, 319
 		+LoadW r2L, 16
 		+LoadW r2H, 36
 		JSR Rectangle
@@ -856,7 +855,8 @@ ReadAutoConfig	JSR SetMBRParams
 		AND #%00000001
 		BNE .rdautfound		; was error - previous value is correct
 		INC cylinders+1
-		+CmpBI cylinders+1, 5	;never more than 1024
+		LDA cylinders+1
+;		+CmpBI cylinders+1, 5	;never more than 1024
 		BNE .rdautloop
 .rdautfound	DEC cylinders+1
 		RTS
@@ -1435,7 +1435,15 @@ SWAPDRV
 	!if (machine=128) {
 		!source "swapdrv128hdd.tas"
 	} else {
-		!source "swapdrv64hdd.tas"
+	    !if (useRamCart=0) {
+		!source "swapdrvramc.tas"
+	    } else {
+		!if (usePlus60K=0) {
+		    !source "swapdrvplus60k.tas"
+		} else {
+		    !source "swapdrv64hdd.tas"
+		}
+	    }
 	}
 
 SETDEV

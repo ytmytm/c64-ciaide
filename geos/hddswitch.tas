@@ -25,16 +25,11 @@
 
 !cpu 6502
 
-;!set machine		= 128			; 64 for C64, 128 for C128
-;!set useCHS		= 0			; 0 - true, !=0 false
-
     !if (machine=64) {
 	!to "hddswitch.64"
     } else {
 	!to "hddswitch.128"
     }
-
-;myDrvType	= $81
 
 		*=$1000+2
 
@@ -84,6 +79,12 @@ ProgExec	+MoveB curDevice, bootDevice	; preserve boot device
 		+LoadB CPU_DATA, IO_IN
 	}
 		JSR FindHDDDevice
+	!if (machine=64) {
+		+CmpB bootDevice, hddDevice	; cannot run from HDD on C64!
+		BEQ DoEnterDeskTop
+	}
+		LDA hddDevice			; set hdd as current device
+		JSR SetDevice
 		JSR GetSetPartition
 		+MoveB bootDevice, curDevice	; restore boot device number
 		JSR SetDevice
@@ -109,8 +110,7 @@ FindHDDDevice
 
 		JSR CheckDriverPresent	; check if hdd driver is already in system
 		+beqx NoDriverError
-		LDA hddDevice		; set hdd as current device
-		JMP SetDevice
+		RTS
 
 NoInterfaceError
 		+LoadW a0, noInterface1
