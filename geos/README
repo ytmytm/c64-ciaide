@@ -42,6 +42,7 @@ C64 without REU
 CONFIGURING
 Edit config.inc and put correct machine value there (64 or 128).
 Set there also correct type of IDE interface (IDE64 or CIAIDE).
+Check out additional config options which are depended on these two values.
 
 
 IMPORTANT NOTE FOR IDE64 OWNERS!!! BLAME YOURSELF IF YOU DIDN'T READ IT!!!

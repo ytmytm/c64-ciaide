@@ -276,7 +276,12 @@ ProgStart	+MoveB curDevice, bootDevice	; preserve boot device
 		+MoveB CPU_DATA, tmpCPU_DATA
 	}
 	!if (useIDE64=0) {
-		; any special initialization?
+		LDX #0
+.clid64		LDA ClearIDE64RAM,x		; copy memory cleaner into lower RAM
+		STA $0400,x
+		INX
+		BNE .clid64
+		JSR $0400			; clear area $1000-$8000 to make IDE64 cold boot
 	} else {
 		LDA #>cia3base			; put correct base into interfaceHI
 		JSR ConvertHex8
@@ -1102,6 +1107,7 @@ WriteIDERegister			; X - regnumber, A - value
 		STA IDE64_IDEDataL
 .wrreg		STA IDE64_IDEBase
 	} else {
+	    !if (extraCareful=0) {
 		LDA IDE_RegTable,X
 		STA cia3pa
 		AND #IDE_wrmask
@@ -1114,6 +1120,26 @@ WriteIDERegister			; X - regnumber, A - value
 		STA cia3pa
 		LDA #0			; port B as input
 		STA cia3ddrb
+	    } else {
+		LDA IDE_RegTable,x
+		PHA
+		ORA #IDE_cs0set
+		STA cia3pa		; CS0 inactive, set address only
+		PLA
+		STA cia3pa		; CS0 active
+		AND #IDE_wrmask
+		STA cia3pa		; WR active
+		LDA #$ff		; port B as output
+		STA cia3ddrb
+		PLA
+		STA cia3pb		; set data
+		LDA IDE_RegTable,x
+		STA cia3pa		; WR inactive
+		ORA #IDE_cs0set
+		STA cia3pa		; CS0 inactive
+		LDA #0			; port B as input
+		STA cia3ddrb
+	    }
 	}
         !if (machine=64) {
 		+MoveB tmpCPU_DATA,CPU_DATA
@@ -1134,6 +1160,7 @@ ReadIDERegister				; X - regnumber, A,X - value
 		LDA IDE64_IDEDataL
 		TAX
 	} else {
+	    !if (extraCareful=0) {
 		LDA IDE_RegTable,X
 		STA cia3pa
 		PHA
@@ -1142,6 +1169,22 @@ ReadIDERegister				; X - regnumber, A,X - value
 		LDX cia3pb
 		PLA
 		STA cia3pa
+	    } else {
+		LDA IDE_RegTable,x
+		PHA
+		ORA #IDE_cs0set		; CS0 inactive
+		STA cia3pa
+		PLA
+		PHA
+		STA cia3pa		; CS0 active
+		AND #IDE_rdmask
+		STA cia3pa		; RD active
+		LDX cia3pb
+		PLA
+		STA cia3pa		; CS0 active, RD inactive
+		ORA #IDE_cs0set
+		STA cia3pa		; CS0 inactive
+	    }
 	}
         !if (machine=64) {
 		+MoveB tmpCPU_DATA, CPU_DATA
@@ -1573,7 +1616,29 @@ finishInstErr	LDX #1
 
 ;---------------------------------------
 	!if (useIDE64=0) {
-	    ; any additional data?
+ClearIDE64RAM	PHP			; IDE64 memory cleaner, must be <256 long, relocatable
+		SEI
+		+PushB CPU_DATA
+		+LoadB CPU_DATA, IO_IN
+		STA $DEFE		; switch to OPEN - RAM in $1000-$7FFF
+		LDA #$10
+		STA $81
+		LDA #0
+		STA $80
+		TAY
+.clrid64loop	STA ($80),y
+		INY
+		BNE .clrid64loop
+		INC $81
+		LDX $81
+		CPX #$80
+		BNE .clrid64loop
+		STA $DEFF		; switch to STND config
+		+PopB CPU_DATA
+		PLP
+		RTS
+ClearIDE64End
+
 	} else {
 IDE_RegTable	+IDE_RegisterTable
 	}
