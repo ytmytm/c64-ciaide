@@ -1,0 +1,39 @@
+; Maciej 'YTM/Elysium' Witkowiak
+;
+; xx.xx.1997
+; 08.08.2001 ACME port
+;
+; This is a patch to SetDevice ($C2B0)
+; routine for GEOS64
+; it allows to exchange current disk driver
+; with custom driver and swapper routine
+;
+; It allows for 4 devices of 2 different types
+; Custom swapper must swap up to $9000-$9d80 area.
+
+
+
+		;*=$d6b0
+
+		BEQ SwapDev_2
+		PHA
+		LDA curDevice
+		CMP #8
+		BCC SwapDev_1
+		CMP #17			;12
+		BCS SwapDev_1
+		JSR ExitTurbo
+SwapDev_1	+PopB curDevice
+SwapDev_2	CMP #8
+		BCC SwapDevEnd
+		CMP #17			;12
+		BCS SwapDevEnd
+		TAY
+		STY curDrive
+		LDA driveType-8,Y
+		CMP curType
+		BEQ SwapDevEnd
+		STA curType
+externalSwap	JSR Swapper
+SwapDevEnd	LDX #$00
+		RTS

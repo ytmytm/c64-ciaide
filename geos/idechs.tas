@@ -1,0 +1,14 @@
+!source "inc/const.inc"
+!source "inc/jumptab.inc"
+!source "inc/geossym.inc"
+!source "inc/geosmac.acme.inc"
+!source "inc/ide3.inc"
+!source "config.inc"
+
+!cpu 6502
+
+!set useCHS		= 0			; 0 - true, !=0 false
+
+!to "idehdd-chs.bin"
+			*=DISK_BASE
+!source "drv/ide-hdd.tas"

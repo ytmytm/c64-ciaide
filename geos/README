@@ -1,0 +1,124 @@
+
+REQUIREMENTS/COMPATIBILITY
+For compiling the stuff, you need ACME, a free cross-assembler.
+
+You need a CIA-IDE interface as described in my articles elsewhere. By default
+this source code expects that it can be found at $D300 I/O page. You can change
+this by editing proper lines in inc/ide3.inc file.
+This source code uses 8-bit interface only.
+Drive: any IDE disk drive will be good. I have tested my code with a disk that
+was not able to use LBA addressing, but LBA-optimized driver will be installed if
+such disk would be detected. You should check your disk parameters. Installer
+tries autoconfiguration, but it may fail. Wrong parameters mean wrong estimation
+of disk size and possible loss of data. Cylinder/Head/Sector numbers are needed
+also for LBA-capable drives.
+Only MASTER device is adressed on IDE cable.
+
+
+Supported platforms: GEOS 2.0 64/128 and...
+C64/128 with REU
+    - no problems.
+C128 without REU and up to 2 different types of drives (e.g. 1571+1541 or 2*1571+1541)
+    - no problems.
+C64 without REU
+    - this is unsupported platform right now
+
+
+
+CONFIGURING
+Edit config.inc and put correct machine value there (64 or 128)
+
+
+
+COMPILING
+Do: make
+and correct .cvt files will be built and saved in compiled/ directory
+Do: make clean to remove all built files
+
+
+
+INSTALL
+Now you can transfer the resulting files to Commodore world and unConvert it
+with Convert v2.5 or GeoConvert98.
+Or you can use c1541 and geoswrite command to put unconverted file
+on a disk image.
+
+After unconverting copy auto-exec to your bootdisk and place it so
+it would be between Configure and InstallDriveD auto-execs. If you are
+not using InstallDriveD just place my installer right after Configure in
+the disk directory.
+
+If you don't have REU but you do use two different kinds of disk drives
+(like me: 1571+2*1541) you will need my patched versuib DeskTop 128 to be
+able to get to drive C. It can be found at
+ftp://ftp.elysium.pl/tools/geos_software/updates/
+
+HDDTool is for configuring HDD and installing driver, it is an Auto-Exec
+HDDSwitch is for changing virtual partitions, it is a DeskAccessory, it
+    can't be used on C64 though...
+
+
+
+USAGE
+hddtool.{64|128} will help you to configure your HDD partitions and will install
+HDD driver if necessary (it will be necessary on boot :).
+Information about disk structure is saved in the very first sector of hard disk.
+Read source code for more. Anyway, IDE HDD driver will not be installed if:
+- there is no IDE interface
+- there is no disk hooked to IDE interface
+- disk is not configured
+Therefore you must run hddtool for the first time from DeskTop to configure
+your disk. Some menu items will not be available unless disk is configured.
+The default partition is the partition that will be always set active whenever
+hddtool is executed. The first partition has number '0', the last partition is
+'65535'. Maxpartition in 'hdd info' option will show you how many partitions
+you have. E.g. '5 partitions, 1 default' means that you have 5 partitions total,
+the last one has number 4 and the second one is active.
+
+
+
+PARAMETERS
+Disk driver in its current state takes the first sector to store configuration
+variables. The rest of the disk is divided into partition-like virtual disks
+(called 'partition' over this document) that you can change while running GEOS.
+Each partition has exactly 15360 sectors and 15232 are available for data so
+there is 3808KB of free space. There are 65536 partitions available for total
+amount of 238GB (physically it would be 476GB because of 8bit interface). This
+is more than any ATA-3 IDE disk will have. Standard limits the size to 128GB.
+
+Transfer rate is... acceptable (erm, I don't know the speed :). It works
+somewhat better on C128 in 2MHz mode, it seems that much time is spent on
+calculating sector data, however my disk uses CHS only and LBA to CHS
+calculations seem to be long (32 bit arithmetic is involved). If your disk
+supports LBA this is not an issue because driver internally uses only LBA.
+
+
+
+DISK STRUCTURE
+My GEOS disk driver can handle only $3C00 sectors at once. This is due to
+memory shortage which prevents from loading more BAMs. Tracks are numbered
+from 1 to 120, sectors from 0 to 127. I reserved the last bit of sector
+number for possible 16bit version. Disk driver contains current partition
+size (now always $00003C00) and offset from start of disk to start of
+current partition. Within partition layout is as below:
+
+sector offset
+$00000000	track 1, sector 0
+$0000007F	track 1, sector 127
+$00000080	track 2, sector 0
+...
+$00000880	track 18, sector 0
+...
+$00003BFF	track 120, sector 127
+
+Directory occupies whole track 18. (18,0) is the usual directory header, as in
+1541. It contains link to (18,1) where file descriptions are stored. During
+erasing (18,127) is initialized as GEOS border directory sector and (18-120) to
+(18-126) are allocated as additional BAMs. BAM starts in (18,126) continues in
+(18-125) to (18-120) and the last portion is in (18,0). BAM sectors do not store
+link in first two bytes - all 256 bytes are used for allocation map. The last
+sector (18,0) contains only $80 bytes of allocation map in $04-$84 offset.
+The rest of directory - file descriptions is identical to classic 1541 scheme.
+
+
+Maciej 'YTM/Elysium' Witkowiak <ytm@elysium.pl>

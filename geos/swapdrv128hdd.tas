@@ -1,0 +1,53 @@
+; Maciej 'YTM/Elysium' Witkowiak
+;
+;11.12.1997
+;- first part turns off REU routines
+;- second part is swapper
+;27.08.1999
+;InternalRam version for C128 - loading
+;into end of DeskAccessory backbuffer
+
+;swapLength	= 7
+firstSwapPage	= $80-14	; startpage in bank0
+
+;		*= $9F57	;$9EAA - GEOS 64
+;				;$9F57 - GEOS 128
+		LDX #0
+		RTS
+flagDevAdr	BRK		;flagDrv - SWAPBASE+3
+		LDX #0
+		RTS
+		BRK
+		LDX #0
+		RTS
+		BRK
+		LDX #0
+		LDX #0
+		RTS
+;---------------------------------------
+Swapper
+		LDX #7
+SwpSaveZP	LDA r0L,X
+		STA $88,X
+		DEX
+		BPL SwpSaveZP
+
+		LDA #0
+		STA r0L
+		STA r1L
+		STA r3H			; destination: bank0
+		LDA #>DISK_BASE
+		STA r0H
+		LDA #firstSwapPage
+		STA r1H
+		+LoadW r2, DISK_DRV_LGH
+		LDA #1			; source: bank1
+		STA r3L
+		JSR SwapBData
+
+		LDX #7
+SwpLoadZp	LDA $88,X
+		STA r0L,X
+		DEX
+		BPL SwpLoadZp
+		RTS

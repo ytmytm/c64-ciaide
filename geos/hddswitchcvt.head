@@ -1,0 +1,189 @@
+; GEOS .cvt header for ACME v0.07
+; by Maciej 'YTM/Elysium' Witkowiak
+; 21.10.1999
+
+
+!cpu 6502
+
+!source "config.inc"
+!source "inc/const.inc"
+!source "inc/diskdrv.inc"
+!source "inc/geosmac.acme.inc"
+!source "inc/geossym.inc"
+!source "inc/geossym2.inc"
+!source "inc/inputdrv.inc"
+!source "inc/jumptab.inc"
+!source "inc/printdrv.inc"
+
+    !if (machine=64) {
+	!to "hddswitch64.cvt"
+    } else {
+	!to "hddswitch128.cvt"
+    }
+
+;-----------------------------------------------------------------------
+;Values with ';*' in comment are defineable, check all of them!
+;-Files generated with this template have wrong filesize, this should be
+; fixed with converter or by copying file under GEOS
+;-if you get 'too much code produced' error check out the length of texts,
+; because only padding gives this error
+;-----------------------------------------------------------------------
+
+;Now select some values:
+
+;base address for your program:
+
+ProgStart		= $1000			;APP_RAM is good for applications
+
+;execution address of your program:
+ProgExec		= ProgStart		;this should be defined in
+						;source file, otherwise uncomment
+						;this and your app will be
+						;executed from its first byte
+
+ProgType		= DESK_ACC		;GEOS executable filetype
+
+;may be one of the:	  ASSEMBLY
+			; DESK_ACC
+			; APPLICATION
+			; PRINTER
+			; INPUT_DEVICE
+			; AUTO_EXEC
+			; INPUT_128
+			
+;-----------------------------------------------------------------------
+
+			!zone DOS_Header
+
+			*=(USR | $80)		;DOS filetype and track #
+			!byte NULL		;sector #
+			
+;if ACME wouldn't insist on putting loadaddress it could be done this way:
+			;!byte USR | $80
+			;!word 0
+			
+			!subzone DOS_filename {
+			
+		.tmp=*
+		!if (machine=64) {
+			!text "HDDSwitch 64"	;DOS filename (up to 16 chars)
+		} else {
+			!text "HDDSwitch 128"	;DOS filename (up to 16 chars)
+		}
+			!fill ((.tmp+16)-*),$a0	;name padding
+			}
+
+			!word NULL		;header T&S, also ignored
+			
+			!byte SEQUENTIAL	;file structure, as for now
+						;this template only supports
+						;SEQUENTIAL files
+						
+			!byte ProgType		;GEOS filetype
+			!byte 01		;*year
+			!byte 08		;*month
+			!byte 23		;*day
+			!byte 21		;*hour
+			!byte 30		;*minute
+			
+			!word NULL		;size in blocks, should be
+						;fixed by converter
+						
+			!text "PRG formatted GEOS file V1.0"
+						;stamp
+						
+			*=*+$c4			;some zeroes
+			
+			!zone GEOS_Header
+			
+			;here comes file header
+			
+			!byte 3,21		;size of icon (x*8,y)
+			!byte 63 | $80		;packer control character
+			
+			;like hardcore? edit icon here! ;)
+			
+			!byte %########, %########, %########
+			!byte %#......., %........, %.......#
+			!byte %#.###.##, %..###..., %.......#
+			!byte %#..#..#., %#.#....., %.......#
+			!byte %#..#..#., %#.##...., %.......#
+			!byte %#..#..#., %#.#....., %.......#
+			!byte %#.###.##, %..###.##, %#####..#
+			!byte %#......., %........, %...##..#
+			!byte %#...#..., %........, %..#.##.#
+			!byte %#..#...., %........, %.#..#.##
+			!byte %#.######, %########, %#...##.#
+			!byte %#.#....., %........, %#...#.##
+			!byte %#.#..###, %######.., %#..#.#.#
+			!byte %#.#....#, %####...., %#.#.#.##
+			!byte %#.#....., %........, %##.#.#.#
+			!byte %#.######, %########, %#.#.#.##
+			!byte %#....#.#, %.#.#.#.#, %.#.#.#.#
+			!byte %#.....#., %#.#.#.#., %#.#.#.##
+			!byte %#......#, %.#.#.#.#, %.#.#.#.#
+			!byte %#......., %#.#.#.#., %#.#.#.##
+			!byte %########, %########, %########
+			
+			!byte USR | $80		;again DOS type
+			!byte ProgType		;again GEOS type
+			!byte SEQUENTIAL	;again structure
+			!word ProgStart		;load address
+			!word ProgEnd		;end address (essencial for DESK_ACC)
+			!word ProgExec		;execute address
+			
+			!subzone GEOSClass {
+			
+		.tmp=*
+			!text "HDD switch"	;*class name (up to 12 chars)
+			!fill ((.tmp+12)-*),$20	;name padding
+			}
+			
+			!text "V1.0"		;*version number ('V',major,'.',minor)
+			!byte NULL		;string termination
+			
+			!word NULL
+
+		!if (machine=64) {
+			!byte %10000000
+		} else {
+			!byte %01000000		;*40/80 columns capability
+		}
+
+;B7 B6
+; 0  0  - runs under 128 GEOS, but in 40 column mode only
+; 0  1  - runs under 128 GEOS in 40 and 80 column modes
+; 1  0  - DOES NOT RUN under 128 GEOS (deskTop will display dialog box)
+; 1  1  - runs under 128 GEOS in 80 column mode only
+
+			!subzone GEOSAuthor	{
+		.tmp=*
+			!text "Maciej Witkowiak";*author's name (up to 63 chars)
+			!byte NULL		;string termination
+			
+			!fill ((.tmp+63)-*),$00	;name padding
+			}
+
+			!subzone GEOSNote	{
+		.tmp=*
+			;*usage note (up to 95 chars)
+			!text "This DA will switch partitions "
+			!text "on IDE-CIA interface"
+			!byte NULL		;string termination
+			!fill ((.tmp+96)-*),$00 ;header padding
+			}
+
+
+			!zone SourceCode			
+			!pseudopc ProgStart
+			NOP			; to fill-in removed loadadress
+			NOP
+	    !if (machine=64) {
+		!binary "hddswitch.64",,2
+	    } else {
+		!binary "hddswitch.128",,2
+	    }
+
+ProgEnd= *+1					;this label have to be at the end
+
+			!realpc

@@ -1,0 +1,30 @@
+
+CIA-IDE.txt
+    HOWTO connect IDE device to C64/128 using an additional port IC:
+    6526 or 8255
+
+8255-IDE.txt
+    HOWTO connect IDE device to 8255 port IC, also more detailed
+    information/introduction to IDE interface
+
+ATA2-EIDE.txt
+    Full and detailed description of ATA-2 standard
+
+ide-8255-sch.gif
+ide-ruud-c64.gif
+ide-ward-sch.gif
+    Three schematics that might be useful. The first one shows 8255 port
+    connection to IDE, the second one comes from R. Baltissen's page
+    and the last one comes from Chris Ward's page.
+
+
+src/
+    Here is source code of CIA-IDE usage examples
+    ACME crossassembler needed
+
+geos/
+    Complete solution for using HDD as described here with GEOS64/128 2.0
+    ACME crossassembler needed
+
+Maciej 'YTM/Elysium' Witkowiak
+<ytm@elysium.pl>

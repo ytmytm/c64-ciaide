@@ -1,0 +1,72 @@
+;
+; Maciej 'YTM/Elysium' Witkowiak <ytm@elysium.pl>
+;
+; 09,22.08.2001
+;
+; This is a function that converts LBA number to CHS with given
+; SectorsPerTrack and SectorsPerCylinder parameters.
+;
+; input: lbawork with (int32) sector number (count starts at 0)
+; output: filled cyl/head/sector bytes
+;	  lbawork is not preserved
+
+;-----------------------------------------------------
+; (long)(lba) / (word)(spc) --> (word)cyl : (word)head
+;
+; (word)head / (byte)spt --> (byte)head : (byte)sector
+;
+; sector++
+;---------
+
+lbawork                 = $f8
+cyl			= lbawork
+head			= lbawork+4
+sector			= head+2
+
+; drive parameters - NEED TO BE UPDATED for each device
+SPT			!byte 26		;Sectors Per Track
+SPC			!word 104		;Sectors Per Cylinder = HEADS*SPT
+
+
+;------------------------------------------------------------------------------
+LBA2CHS			;>lbawork (long)
+			;>spc (word)
+			;>spt (byte)
+			;<chs (word,byte,byte)
+			;CYLINDER:=LBA / SPC, remainder --> head
+			LDA #0
+			STA head:STA head+1
+			LDY #32
+SPC_Loop		ASL lbawork+0:ROL lbawork+1:ROL lbawork+2:ROL lbawork+3
+			ROL	     :ROL head+1
+			PHA
+			CMP SPC+0
+			LDA head+1:SBC SPC+1
+			BCC SPC_NextBit
+			PLA
+			SBC SPC+0
+			PHA
+			LDA head+1:SBC SPC+1:STA head+1
+			INC lbawork+0
+SPC_NextBit		PLA
+			DEY
+			BNE SPC_Loop
+			STA head+0
+
+			; HEAD:=HEAD/SPT, remainder --> sector
+			LDA #0
+			STA sector
+			LDY #16
+SPT_Loop		ASL head+0:ROL head+1
+			ROL
+			CMP SPT
+			BCC SPT_NextBit
+			SBC SPT
+			INC head+0
+SPT_NextBit		DEY
+			BNE SPT_Loop
+			STA sector
+			;SECTOR:=SECTOR+1
+			INC sector
+			RTS
+

@@ -1,0 +1,94 @@
+;
+; Maciej 'YTM/Elysium' Witkowiak <ytm@elysium.pl>
+;
+; 09.08.2001
+;
+; This is a function that converts LBA number to CHS with given
+; SectorsPerTrack and SectorsPerCylinder parameters.
+; It might not be the fastest, but it works.
+;
+; input: lbawork with (int32) sector number (count starts at 0)
+; output: filled cyl/head/sector bytes
+;	  lbawork is not preserved
+
+lbawork			= $f8			;int32, zpage
+cyl			= lbawork+4
+head			= cyl+2
+sector			= head+1
+
+; drive parameters - NEED TO BE UPDATED for each device
+SPT		!byte 23		; Sectors Per Track
+SPC		!word 92		; Sectors Per Cylinder = HEADS*SPT
+
+    		;LBA2CHS (SPC<$100)
+		;>(LBAWORK) LBA
+		;>SPT (WORD)
+		;>SPC (BYTE)
+		;<(CHS) CHS
+		;LBAWORK DIRTY,
+		;LBA COUNTED FROM 0
+LBA2CHS
+		LDA #0
+		STA cyl
+		STA cyl+1
+		STA head
+		STA sector
+
+		;(LBA)=(LBA) DIV SPC
+
+SPC_Loop	LDA lbawork+3	;SPCLP
+		ORA lbawork+2
+		BNE SPC_substr
+		LDA lbawork+1
+		CMP SPC+1
+		BEQ SPC_cmplow
+		BCS SPC_substr
+SPC_cmplow	LDA lbawork+0
+		CMP SPC+0
+		BCC SUB_next_1
+
+SPC_substr	LDA lbawork+0
+		SEC
+		SBC SPC+0
+		STA lbawork+0
+		LDA lbawork+1
+		SBC SPC+1
+		STA lbawork+1
+		LDA lbawork+2
+		SBC #0
+		STA lbawork+2
+		LDA lbawork+3
+		SBC #0
+		STA lbawork+3
+		INC cyl
+		BNE SCYL
+		INC cyl+1
+SCYL		JMP SPC_Loop
+
+		;NOW EXTRACT HEAD #
+		;(LBA)=(LBA) DIV SPT
+		;THIS TIME SPC IS (BYTE)
+		;BUT IT CAN BE (WORD), SO
+		;WE'RE DEALING WITH WORDS HERE
+SUB_next_1
+		LDA lbawork+1
+		BNE SUB_substr_SPT
+		LDA lbawork+0
+		CMP SPT
+		BCC SUB_next_2
+
+SUB_substr_SPT	LDA lbawork+0
+		SEC
+		SBC SPT
+		STA lbawork+0
+		LDA lbawork+1
+		SBC #0
+		STA lbawork+1
+		INC head
+		JMP SUB_next_1
+
+		;SECTORS ARE FROM 1, NOT 0
+SUB_next_2	TAX
+		INX
+		STX sector
+		RTS

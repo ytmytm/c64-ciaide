@@ -1,0 +1,1466 @@
+;30.5.97, 24.7.97
+;23.9.97 - C128 version
+;more in December '97
+;17.05.98 - fixed driver swapper
+;22.08.99 - changed dirhead position
+;27.08.99 - internal ram version
+;28.08.99 - single drive setup support
+;20.07.00 - HDD (1ST VERSION)
+;05.08.01 - HDD (2ND VERSION)
+;06.08.01 - ACME port, REU installation ability, GEOS64/128 common
+;08.08.01 - maximized bastard
+
+;15-23.08.01 - hddtool based on inithdd
+;LOOKOUT: non-settable constants in driver, search for <---,!!!
+;TODO: C64 swapper stuff
+
+;constant value
+HDD_PARTITIONSIZE_L	= $3c00
+HDD_PARTITIONSIZE_H	= 0
+HDD_OFFS_1STPART_L	= 1
+HDD_OFFS_1STPART_H	= 0
+
+; MBR layout
+MBR_OFFS_SIGNATURE	= $00	; 8byte
+MBR_OFFS_MODE		= $08	; 0==LBA, 1==CHS
+MBR_OFFS_SPINTIME	= $09
+MBR_OFFS_SECTORS	= $0a
+MBR_OFFS_HEADS		= $0b
+MBR_OFFS_CYLINDERS	= $0c	; c/d word
+MBR_OFFS_MAXPARTITION	= $0e	; e/f word
+MBR_OFFS_DEFPARTITION	= $10	; 0/1 word
+MBR_OFFS_PARTITIONSIZE	= $12	; 2/3/4/5 long
+MBR_OFFS_1STPARTITION	= $16	; 6/7/8/9 long
+MBR_OFFS_LAST		= $1a
+
+!source "config.inc"
+!source "inc/const.inc"
+!source "inc/jumptab.inc"
+!source "inc/diskdrv.inc"
+!source "inc/geossym.inc"
+!source "inc/geosmac.acme.inc"
+!source "inc/ide3.inc"
+
+!cpu 6502
+
+;!set machine		= 128			; 64 for C64, 128 for C128
+;!set useCHS		= 0			; 0 - true, !=0 false
+
+    !if (machine=64) {
+	!to "hddtool.64"
+    } else {
+	!to "hddtool.128"
+    }
+
+;swapLength	= 12	; this includes the last page (e.g. 13->$9Dxx will be swapped too)
+			; works for ownInstall only (patched SetDevice and removed REU code)
+
+;myDrvType	= $81				; disk type for my drive
+
+		*= $1000+2
+		JMP ProgStart
+;--------------------------------------
+; all vars here
+hddConfigured	!byte 0		; 0 - configured, !=0 not configured
+bootDevice	!byte 0		; restore to curDevice upon exit
+hddDevice	!byte 0		; hdd devnum
+hasREU		!byte 0		; 0==NOREU, copy of ramExpSize
+; this part must be identical with MBR_OFFS_*
+addrmode	!byte 0		; 0==LBA, 1==CHS
+spintime	!byte 0		; 0=no spintime, *5s units of inactivity to poweroff
+sectors		!byte 0
+heads		!byte 0
+cylinders	!word 0
+maxpartition	!word 0		; ==lastpartition
+defpartition	!word 0		; default partition on boot
+partitionsize	!word HDD_PARTITIONSIZE_L,HDD_PARTITIONSIZE_H	; size of a partition
+firstpartoffs	!word HDD_OFFS_1STPART_L, HDD_OFFS_1STPART_H	; offset to first partition
+; end of identical
+spc		!word 0		; sectors per cylinder
+numspace	!byte 0,0,0,0,0	; temporary for decimal input
+namespace	!byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0	; temporary for disk name
+    !if (machine=64) {
+tmpCPU_DATA	!byte 0		; restore to CPU_DATA upon exit
+    }
+;--------------------------------------
+; all data here
+signature	!text "HDD"		; disk driver must have it
+signatureMBR	!text "HDDCOMMO"	; disk MBR must have it
+diskname	!text "HDD DISK #",0	; default diskname after erasing
+
+; top level menu
+appMenu		!byte 0, 15
+		!word 0, 120		; 90 is ideal for 40
+		!byte 2 | HORIZONTAL
+
+		!word geosTxt
+		!byte SUB_MENU
+		!word geosMenu
+
+		!word configTxt
+		!byte SUB_MENU
+		!word configMenu
+
+geosTxt		!text "geos", 0
+configTxt	!text "configuration", 0
+
+; first level submenus
+geosMenu	!byte 15, 45
+		!word 0, 45
+		!byte 2 | VERTICAL
+
+		!word aboutTxt
+		!byte MENU_ACTION
+		!word DoAbout
+		
+		!word quitTxt
+		!byte MENU_ACTION
+		!word DoQuit
+
+aboutTxt	!text "about", 0
+quitTxt		!text "quit", 0
+
+configMenu	!byte 15, 120
+		!word 25 , 160
+		!byte 7 | VERTICAL
+
+		!word hddsetupTxt
+		!byte MENU_ACTION
+		!word DoHDDSetup
+
+		!word hddinfoTxt
+		!byte MENU_ACTION
+		!word DoHDDInfo
+
+		!word hddformatTxt
+		!byte MENU_ACTION
+		!word DoHDDFormat
+
+		!word eraseTxt
+		!byte MENU_ACTION
+		!word DoErase
+
+		!word setdefTxt
+		!byte MENU_ACTION
+		!word DoSetDefaultPartition
+
+		!word setpowerTxt
+		!byte MENU_ACTION
+		!word DoSetSpinDownTime
+
+		!word spindownTxt
+		!byte MENU_ACTION
+		!word DoSpindownNow
+
+hddsetupTxt	!text "setup hdd", 0
+hddinfoTxt	!text ITALICON, "hdd info", 0
+hddformatTxt	!text ITALICON, "format hdd", 0
+eraseTxt	!text ITALICON, "format partition", 0
+setdefTxt	!text ITALICON, "set default", 0
+setpowerTxt	!text "spindown time", 0
+spindownTxt	!text "spindown now", 0
+
+; graphics string
+clearscreen	!byte MOVEPENTO
+		!word 0
+		!byte 0
+		!byte NEWPATTERN, 2
+		!byte RECTANGLETO
+		!word 319 | DOUBLE_W 
+		!byte 199
+		!byte NULL
+
+; dboxes
+infoDlgBox	!byte DEF_DB_POS | 1		; show two lines of text (a0), (a1)
+		!byte OK, DBI_X_2, DBI_Y_2
+		!byte DBVARSTR, 10, 32, a0
+		!byte DBVARSTR, 10, 48, a1
+		!byte NULL
+
+yesnoDlgBox	!byte DEF_DB_POS | 1		; as above with YES/NO buttons
+		!byte YES, DBI_X_0, DBI_Y_2
+		!byte NO, DBI_X_2, DBI_Y_2
+		!byte DBVARSTR, 10, 32, a0
+		!byte DBVARSTR, 10, 48, a1
+		!byte NULL
+
+enterdecDlgBox	!byte DEF_DB_POS | 1		; enter decimal number or CANCEL
+		!byte CANCEL, DBI_X_0, DBI_Y_2
+		!byte OK, DBI_X_2, DBI_Y_2
+		!byte DBVARSTR, 10, 32, a0
+		!byte DBGETSTRING, 10, 48, a1, 5
+		!byte NULL
+
+hddinfoDlgBox	!byte DEF_DB_POS | 1		; HDD parameters
+		!byte OK, DBI_X_2, DBI_Y_2
+		!byte DBTXTSTR, 10, 32
+		!word hddinfoTxt1
+		!byte DBTXTSTR, 10, 48
+		!word hddinfoTxt2
+		!byte DBTXTSTR, 10, 64
+		!word hddinfoTxt3
+		!byte NULL
+
+installErr1	!text BOLDON, "Could not install driver, you are", 0
+installErr2	!text "using 4 drives or need RAM expansion.", 0
+
+noInterface1    !text BOLDON, "Could not find interface at $"
+interfaceHI	!text "D300", 0
+noInterface2	!text "check hardware or recompile.", 0
+
+eraseaboutname	!text BOLDON, "You are going to erase disk:", 0
+
+formatWarn1	!text BOLDON, "You are going to erase all", 0
+formatWarn2	!text "partitions. Proceed?", 0
+
+hasCHS1		!text BOLDON, "Your disk uses CHS only, you",0
+
+hasLBA1		!text BOLDON, "Your disk supports LBA, but you",0
+hasCHS2
+hasLBA2		!text "need to check its geometry.",0
+
+autoconfTxt1	!text BOLDON, "Autoconfig found CHS data:",0
+autoconfTxt2
+autoconfcyl	!text "00000/"
+autoconfhead	!text "000/"
+autoconfsect	!text "000, correct?",0
+
+choosepartition	!text BOLDON, "Enter number of partition", 0
+
+getsectors	!text BOLDON, "Enter number of sectors:", 0
+getheads	!text BOLDON, "Enter number of heads:", 0
+getcyl		!text BOLDON, "Enter number of cyliders:", 0
+getdefpart	!text BOLDON, "Enter number of default part.:", 0
+
+numpart1	!text BOLDON, "There are "
+numpartshex	!text "00000 partitions",0
+numpart2	!text "available.",0
+
+hddinfoTxt1	!text PLAINTEXT,"Disk CHS parameters are:", 0
+hddinfoTxt2
+hddinfocyl	!text "00000/"
+hddinfohead	!text "000/"
+hddinfosect	!text "000.", 0
+hddinfoTxt3	!text PLAINTEXT, "Total: "
+hddinfoallpart	!text "00000 partitions, "
+hddinfodefpart	!text "00000 default.",0
+
+about1		!text BOLDON, "HDDTool and IDE interface", 0
+about2		!text "by Maciej Witkowiak, VIII 2001", 0
+
+spindown1	!text BOLDON, "Number of 5s. units to poweroff:", 0
+
+hextab		!text "0123456789ABCDEF"
+
+;--------------------------------------
+ProgStart	+MoveB curDevice, bootDevice	; preserve boot device
+		+MoveB ramExpSize, hasREU	; preserve REU presence
+	!if (machine=64) {
+		+MoveB CPU_DATA, tmpCPU_DATA
+		+LoadB CPU_DATA, IO_IN
+	}
+		LDA #>cia3base			; put correct base into interfaceHI
+		JSR ConvertHex8
+		+MoveW a0, interfaceHI
+		JSR InstallHDDDriver		; try to install disk driver
+		+CmpBI firstBoot, TRUE
+		BNE AutoExec
+		JMP notAutoExec
+
+DoQuit		LDA defpartition		; setup default partition
+		LDX defpartition+1
+		JSR SetPartition
+AutoExec	JSR SetSpinTime			; set power management features
+		+MoveB bootDevice, curDevice	; restore boot device number
+		JSR SetDevice
+DoEnterDeskTop
+	!if (machine=64) {
+		+MoveB tmpCPU_DATA, CPU_DATA
+	}
+		JMP EnterDeskTop		; oh boy, we're leaving!
+
+;---------------------------------------
+; try to setup hdd driver and params, some errors are fatal (so exit then)
+; set current device to hdd
+InstallHDDDriver
+		; check if interface is present
+		+LoadB cia3ddra, $ff	; setup ports
+		+LoadB cia3ddrb, 0
+		+LoadB cia3pa, $f5	; try to read IDE_Status
+		+MoveB cia3pb, r0L
+		+LoadB cia3pa, $ff
+		+CmpBI cia3pa, $ff	; should be same
+		BNE InterfceNtPrs
+		+CmpB cia3pb, r0L	; should be different
+		BNE InterfacePresent
+InterfceNtPrs	JMP NoInterfaceError
+InterfacePresent
+		JSR AnalyzeMBR		; try to read drive parameters
+		LDA hddConfigured
+		BNE ExitNow		; exit if config not succeeded
+		JSR CheckDriverPresent	; check if hdd driver is already in system
+		+bnex SkipInstall
+	!if (machine=64) {
+		+PushB CPU_DATA
+		+LoadB CPU_DATA, RAM_64K
+	}
+		JSR InstallDriver
+	!if (machine=64) {
+		+PopB CPU_DATA
+	}
+		+beqx SkipInstall
+		JMP DriverInstallError
+SkipInstall	LDA hddDevice		; set hdd as current device
+		JSR SetDevice
+		+MoveW partitionsize, DISK_BASE+$55		;<---
+		+MoveW partitionsize+2, DISK_BASE+$57		;<---
+		+MoveW maxpartition, DISK_BASE+$5B		;<---
+		LDA addrmode
+		BEQ SkipCHSInst
+		+MoveB sectors, DISK_BASE+$5D			;<---
+		+MoveW spc, DISK_BASE+$5E			;<---
+SkipCHSInst	LDA defpartition	; setup default partition and push data into REU
+		LDX defpartition+1
+		JSR SetPartition
+ExitNow		RTS
+
+;--------------------------------------
+notAutoExec	; program entry for interactive usage (non auto-exec)
+		JSR UpdateMenusOpts
+		+LoadW r0, clearscreen
+		JSR GraphicsString
+		+LoadW r0, appMenu
+		JSR DoMenu
+		JMP MainLoop
+
+DriverInstallError
+		+LoadW a0, installErr1
+		+LoadW a1, installErr2
+                JSR DoErrorBox
+		JMP DoEnterDeskTop
+NoInterfaceError
+		+LoadW a0, noInterface1
+		+LoadW a1, noInterface2
+		JSR DoErrorBox
+		JMP DoEnterDeskTop
+
+DoErrorBox	+LoadW r0, infoDlgBox
+		JMP DoDlgBox
+DoYesNoBox	+LoadW r0, yesnoDlgBox
+		JMP DoDlgBox
+
+		!zone UpdateMenusOpts
+;--------------------------------------
+; update available menus (some are active after successful setup only)
+UpdateMenusOpts
+		LDA hddConfigured
+		BEQ .isconfigured
+		LDA #ITALICON
+		LDX #$60		; RTS
+		BNE .cont
+.isconfigured	LDA #PLAINTEXT
+		LDX #$ea		; NOP
+.cont		STA hddinfoTxt
+		STA hddformatTxt
+		STA eraseTxt
+		STA setdefTxt
+		STX hddinfo_trigger
+		STX hddformat_trigger
+		STX erase_trigger
+		STX setdef_trigger
+		RTS
+
+		!zone DoDecDlg
+;--------------------------------------
+; returns word in r0 and C=0 or C=1 for CANCEL, for error - repeats query
+DoDecDlg
+		+LoadW a1, numspace
+		LDY #0
+		TYA
+		STA (a1),y
+		+LoadW r0, enterdecDlgBox
+		JSR DoDlgBox
+		+CmpBI sysDBData, CANCEL
+		BEQ DoDDlgEndC
+		+LoadW r0, 0
+		; now find end of string
+		LDY #0
+		LDX #0
+		LDA (a1),y
+		BNE .cont
+		JMP DoDDlgEndC
+.cont		INY
+		LDA (a1),y
+		BNE .cont
+		DEY
+.loop		LDA dectabL,x
+		STA r1L
+		LDA dectabH,x
+		STA r1H
+		LDA (a1),y
+		JSR ConvFromDec
+		BCS DoDDlgEndC
+		INX
+		DEY
+		BPL .loop
+DoDDlgEnd	LDA r0L
+		CLC
+		RTS
+DoDDlgEndC	SEC
+		RTS
+
+dectabL		!byte <1, <10, <100, <1000, <10000
+dectabH		!byte >1, >10, >100, >1000, >10000
+
+; convert number, multiply A by (r1) and add to r0, use r2 if needed, C=0; C=1 for non [0-9]
+; preserve X and Y
+ConvFromDec	STX a0L
+		STY a0H
+		CMP #'0'
+		BCC DoDDlgEndC
+		CMP #'9'+1
+		BCS DoDDlgEndC
+		AND #%00001111
+		STA r2L
+		LDA #0
+		STA r2H
+		LDX #r1
+		LDY #r2
+		JSR DMult
+		+AddW r1, r0
+		LDY a0H
+		LDX a0L
+		CLC
+		RTS
+
+		!zone ConvertToDec
+;---------------------------------------
+; convert (r0) to *(a1)
+; shamelessly stolen from GEOS Kernal PutDecimal
+ConvertToDec	BCC .clean3
+		LDY #4
+		BNE .doclean
+.clean3		+LoadB r0H, 0
+		LDY #2
+.doclean	LDA #' '
+.loop		STA (a1),y
+		DEY
+		BPL .loop
+		+LoadW r2L, SET_SURPRESS | SET_LEFTJUST
+		+LoadB r2H, 4
+		+LoadB r3L, 0
+.convdec0	LDY #0
+		LDX r2H
+.convdec1	LDA r0L
+		SEC
+		SBC dectabL,x
+		STA r0L
+		LDA r0H
+		SBC dectabH,x
+		BCC .convdec2
+		STA r0H
+		INY
+		+bra .convdec1
+.convdec2	LDA r0L
+		ADC dectabL,x
+		STA r0L
+		TYA
+		BNE .convdec3
+		CPX #0
+		BEQ .convdec3
+		+bbsf 6, r2L, .convdec4
+.convdec3	ORA #'0'
+		LDY r3L
+		STA (a1),y
+		INC r3L
+		LDA #%10111111
+		AND r2L
+		STA r2L
+.convdec4	DEC r2H
+		BPL .convdec0
+		RTS
+
+		!zone DoAbout
+;---------------------------------------
+; show simple about box
+DoAbout		JSR DoPreviousMenu
+		+LoadW a0, about1
+		+LoadW a1, about2
+		JMP DoErrorBox
+
+		!zone DoSpindownNow
+;---------------------------------------
+; turn off drive motor NOW!
+DoSpindownNow	JSR DoPreviousMenu
+		JSR SetMBRParams
+		LDA #IDE_SPINDOWN
+		LDX #IDE_Command
+		JMP WriteIDERegister
+
+		!zone DoSetSpinDownTime
+;---------------------------------------
+; set power management options for drive
+DoSetSpinDownTime
+		JSR DoPreviousMenu
+		+LoadW a0, spindown1
+		JSR DoDecDlg
+		BCS .end
+		+MoveB r0L, spintime
+		JSR ReadMBR
+		+MoveB spintime, diskBlkBuf+MBR_OFFS_SPINTIME
+		JSR WriteMBR
+		JSR SetSpinTime
+.end		RTS
+
+SetSpinTime	LDA spintime
+		LDX #IDE_SectorCount
+		JSR WriteIDERegister
+		LDA #IDE_SETSPINDOWN
+		LDX #IDE_Command
+		JSR WriteIDERegister
+		RTS
+
+		!zone DoHDDInfo
+;---------------------------------------
+; show box with drive configuration info
+DoHDDInfo	JSR DoPreviousMenu
+hddinfo_trigger	NOP
+		+MoveW cylinders, r0
+		+LoadW a1, hddinfocyl
+		SEC
+		JSR ConvertToDec
+		+MoveB heads, r0L
+		+LoadW a1, hddinfohead
+		CLC
+		JSR ConvertToDec
+		+MoveB sectors, r0L
+		+LoadW a1, hddinfosect
+		CLC
+		JSR ConvertToDec
+		+MoveW maxpartition, r0
+		+AddVW 1, r0
+		SEC
+		+LoadW a1, hddinfoallpart
+		JSR ConvertToDec
+		+MoveW defpartition, r0
+		SEC
+		+LoadW a1, hddinfodefpart
+		JSR ConvertToDec
+		+LoadW r0, hddinfoDlgBox
+		JSR DoDlgBox
+		RTS
+
+		!zone DoHDDSetup
+;---------------------------------------
+; setup the drive for the first time
+DoHDDSetup	JSR DoPreviousMenu
+		JSR CheckLBA
+		STX addrmode
+		+beqx .hasLBA
+		+LoadW a0, hasCHS1
+		+LoadW a1, hasCHS2
+		+bra .showbox
+.hasLBA		+LoadW a0, hasLBA1
+		+LoadW a1, hasLBA2
+.showbox	JSR DoErrorBox
+
+		JSR ReadAutoConfig
+		+MoveB heads, r0L			; show results and ask if OK
+		+LoadW a1, autoconfhead
+		CLC
+		JSR ConvertToDec
+		+MoveB sectors, r0L
+		+LoadW a1, autoconfsect
+		CLC
+		JSR ConvertToDec
+		+MoveW cylinders, r0
+		+LoadW a1, autoconfcyl
+		SEC
+		JSR ConvertToDec
+		+LoadW a0, autoconfTxt1
+		+LoadW a1, autoconfTxt2
+		JSR DoYesNoBox
+		+CmpBI sysDBData, YES
+		BEQ .maxpartget
+
+		+LoadW a0, getsectors			; get CHS data from user
+		JSR DoDecDlg
+		BCC .cont
+.endsetup	RTS
+.cont		STA sectors
+		+LoadW a0, getheads
+		JSR DoDecDlg
+		BCS .endsetup
+		STA heads
+		+LoadW a0, getcyl
+		JSR DoDecDlg
+		BCS .endsetup
+		STA cylinders
+		+MoveB r0H, cylinders+1
+
+.maxpartget	; count maxpartition based on provided data
+		JSR CountMaxPartition
+		+MoveW r0, maxpartition
+		+LoadW a1, numpartshex		; show info about # of available partitions
+		SEC
+		JSR ConvertToDec
+		+LoadW a0, numpart1
+		+LoadW a1, numpart2
+		JSR DoErrorBox
+		+SubVW 1, maxpartition		; so maxpartition==lastpartition
+
+		JSR DoSetDefPartExe		; get default partition number
+
+		LDX #0				; clean buffer
+		TXA
+.clrmbr		STA diskBlkBuf,x
+		INX
+		BNE .clrmbr
+.siglp		LDA signatureMBR,x		; put signature and data
+		STA diskBlkBuf,x
+		INX
+		CPX #8
+		BNE .siglp
+		+LoadW partitionsize, HDD_PARTITIONSIZE_L
+		+LoadW partitionsize+2, HDD_PARTITIONSIZE_H
+		+LoadW firstpartoffs, HDD_OFFS_1STPART_L
+		+LoadW firstpartoffs+2, HDD_OFFS_1STPART_H
+		+LoadB spintime, 0
+		LDX #0
+.paramlp	LDA addrmode, x
+		STA diskBlkBuf+MBR_OFFS_MODE,x
+		INX
+		CPX #MBR_OFFS_LAST-MBR_OFFS_MODE
+		BNE .paramlp
+
+		JSR WriteMBR		; save MBR from diskBlkBuf
+		JSR InstallHDDDriver	; try to setup things again
+		JSR UpdateMenusOpts	; enable some menu options
+		JMP HDDFormatExe	; jump to format option
+
+		!zone CountMaxPartition
+;---------------------------------------
+; r0/r1+r4/r5 = cylinders*sectors*heads/partitionsize
+CountMaxPartition
+		;count total number of sectors first
+		+MoveB sectors, r0L
+		+MoveB heads, r1L
+		LDX #r0
+		LDY #r1L
+		JSR BBMult		; sectors*heads-->r0
+		+LoadW r1, 0
+		+MoveW cylinders, r2
+		+LoadW r3, 0
+		JSR LMult		; cylinders*sectors*heads-->r4/r5
+		+MoveW r4, r0
+		+MoveW r5, r1
+		+LoadW r2, HDD_PARTITIONSIZE_L
+		+LoadW r3, HDD_PARTITIONSIZE_H
+		JMP LDiv
+
+		!zone ConvertHex
+;---------------------------------------
+; convert A into two hex numbers in a0L/a0H ($ae->'a''e'
+ConvertHex8	PHA
+		LSR
+		LSR
+		LSR
+		LSR
+		TAX
+		LDA hextab,x
+		STA a0L
+		PLA
+		AND #%00001111
+		TAX
+		LDA hextab,x
+		STA a0H
+		RTS
+
+		!zone DoSetDefaultPartition
+;---------------------------------------
+; get default partition number
+DoSetDefaultPartition
+		JSR DoPreviousMenu
+setdef_trigger	NOP
+DoSetDefPartExe
+.defpartget	+LoadW a0, getdefpart
+		JSR DoDecDlg
+		BCC .defpartgetc
+		RTS
+.defpartgetc	+CmpB maxpartition+1, r0H
+		BEQ .defpartgetcc
+		BCC .defpartget
+.defpartgetcc	+CmpB maxpartition, r0L
+		BEQ .cont
+		BCC .defpartget
+.cont		+MoveW r0, defpartition
+		JSR ReadMBR
+		+MoveW defpartition, diskBlkBuf + MBR_OFFS_DEFPARTITION
+		JSR WriteMBR
+		RTS
+
+		!zone DoHDDFormat
+;---------------------------------------
+; format disk - after setup erase all partitions
+DoHDDFormat	JSR DoPreviousMenu
+hddformat_trigger
+		NOP
+HDDFormatExe
+		+LoadW a0, formatWarn1
+		+LoadW a1, formatWarn2
+		JSR DoYesNoBox
+		+CmpBI sysDBData, YES
+		BEQ .cont
+		RTS
+.cont		+LoadW a2, 0
+		+AddVW 1, maxpartition
+		LDA #2
+		JSR SetPattern
+		JSR i_PutString
+		!word 0
+		!byte 30
+		!text BOLDON, "Formatting partition:",0
+
+.loop		+LoadW r11, 120 | DOUBLE_W
+		+LoadB r1H, 30
+		+MoveW a2, r0
+		+LoadB r0H, 0
+		LDA #SET_SURPRESS | SET_LEFTJUST
+		JSR PutDecimal
+		LDA a2L				; erase all partitions one by one
+		LDX a2H
+		JSR ErasePartition
+		INC a2L
+		BNE *+4
+		INC a2H
+		+CmpW a2, maxpartition
+		BNE .loop
+		+SubVW 1, maxpartition
+
+		+LoadW r3, 0
+		+LoadW r4, 240
+		+LoadW r2L, 16
+		+LoadW r2H, 36
+		JSR Rectangle
+		LDA defpartition
+		LDX defpartition+1
+		JSR SetPartition
+		RTS
+
+		!zone DoErase
+;---------------------------------------
+; erase one partition
+DoErase		JSR DoPreviousMenu
+erase_trigger	NOP
+		+LoadW a0, choosepartition
+		JSR DoDecDlg
+		BCS .end		; check against maxpartition
+		+CmpB maxpartition+1, r0H
+		BEQ .checklow
+		BCC .end
+.checklow	+CmpB maxpartition, r0L
+		BEQ .cont
+		BCC .end
+
+.cont		LDA r0L
+		STA a3L			; so erase will put correct #
+		LDX r0H
+		STX a3H
+		JSR SetPartition
+		JSR GetDirHead
+		LDY #0
+.namelp		LDA curDirHead+OFF_DISK_NAME,y
+		CMP #$a0
+		BEQ .nameend
+		STA namespace,y
+		INY
+		CPY #16
+		BNE .namelp
+.nameend	LDA #0
+		STA namespace,y
+		+LoadW a0, eraseaboutname
+		+LoadW a1, namespace
+		JSR DoYesNoBox
+		+CmpBI sysDBData, YES
+		BNE .end
+		JSR NoSetErasePart
+.end		RTS
+
+		!zone AnalyzeMBR
+;---------------------------------------
+; read and analyze contents of MBR
+AnalyzeMBR	+LoadB hddConfigured, 1
+		JSR ReadMBR
+		+beqx .cont
+.end		RTS
+.cont		LDX #0
+.sigloop	LDA diskBlkBuf,x
+		CMP signatureMBR,x
+		BNE .end
+		INX
+		CPX #8
+		BNE .sigloop
+
+		+LoadB hddConfigured, 0
+		LDX #0
+.paramloop	LDA diskBlkBuf+MBR_OFFS_MODE,x		; copy params from disk
+		STA addrmode,x
+		INX
+		CPX #MBR_OFFS_LAST-MBR_OFFS_MODE
+		BNE .paramloop
+
+		LDA addrmode		; set SPT/SPC values for non-CHS
+		BEQ .end2
+		+MoveB sectors, a0L	; set SPT/SPC values for non-CHS
+		STA a0L
+		+LoadB a0H, 0
+		STA a1H
+		+MoveB heads, a1L
+		LDX #a0
+		LDY #a1
+		JSR DMult
+		+MoveW a0, spc 
+.end2		RTS
+
+		!zone ReadAutoConfig
+;---------------------------------------
+; try do do some autoconfiguration of disk
+ReadAutoConfig	JSR SetMBRParams
+		LDA #IDE_IDENTIFY
+		JSR ReadMBR_2
+		+MoveB diskBlkBuf+1, cylinders
+		+MoveB diskBlkBuf+3, heads
+		+MoveB diskBlkBuf+6, sectors
+		+LoadB cylinders+1, 0
+.rdautloop	JSR SetMBRParams
+		LDA cylinders+1
+		LDX #IDE_CylinderH
+		JSR WriteIDERegister
+		LDA #IDE_READ
+		LDX #IDE_Command
+		JSR WriteIDERegister
+		JSR WaitIDEBusy
+.drqlp		LDX #IDE_Status		; wait for DRQ
+		JSR ReadIDERegister
+		AND #%00001000
+		BEQ .drqlp
+
+		LDY #0
+.rdautlp2	LDX #IDE_Data		; fetch data and throw it away
+		JSR ReadIDERegister
+		INY
+		BNE .rdautlp2
+
+		LDX #IDE_Status
+		JSR ReadIDERegister
+		AND #%00000001
+		BNE .rdautfound		; was error - previous value is correct
+		INC cylinders+1
+		+CmpBI cylinders+1, 5	;never more than 1024
+		BNE .rdautloop
+.rdautfound	DEC cylinders+1
+		RTS
+
+		!zone ReadMBR
+;---------------------------------------
+; try to load 1st disk sector to dskBlkBuf without using driver, use CHS always here
+; (CHS=0/0/1, LBA=0)
+; returns X!=0 if any error happened, then in A there's error register
+ReadMBR         JSR SetMBRParams
+
+		LDA #IDE_READ		; issue command
+ReadMBR_2	LDX #IDE_Command
+		JSR WriteIDERegister
+		JSR WaitIDEBusy		; this is probably unneeded
+
+.drqloop	LDX #IDE_Status		; wait for DRQ
+		JSR ReadIDERegister
+		AND #%00001000
+		BEQ .drqloop		; should never do more than once if waiting for BUSY above
+
+		LDY #0
+.readdata	LDX #IDE_Data		; fetch the data
+		JSR ReadIDERegister
+		STA diskBlkBuf,y
+		INY
+		BNE .readdata
+
+HandleError	LDX #IDE_Status		; common for read/write
+		JSR ReadIDERegister
+		AND #%00000001		; get error status
+		BEQ .readok		; no error
+		LDX #IDE_Error
+		JSR ReadIDERegister
+		LDX #1
+		!byte $2c
+.readok		LDX #0
+		RTS
+
+		!zone WriteMBR
+;---------------------------------------
+; try to save 1st disk sector from diskBlkBuf
+WriteMBR	JSR SetMBRParams
+
+		LDA #IDE_WRITE
+		LDX #IDE_Command
+		JSR WriteIDERegister
+
+.drqloop	LDX #IDE_Status		; wait for DRQ
+		JSR ReadIDERegister
+		AND #%00001000
+		BEQ .drqloop
+
+		LDY #0
+.writedata	LDX #IDE_Data
+		LDA diskBlkBuf,y
+		JSR WriteIDERegister
+		INY
+		BNE .writedata
+
+		JSR WaitIDEBusy		; wait for command completion
+		JMP HandleError
+
+		!zone CheckLBA
+;---------------------------------------
+; try to load MBR using LBA addressing
+; returns X=0 for LBA, X=1 for CHS
+CheckLBA	JSR SetMBRParams	; set CHS params (0/0/1)
+		LDA #0			; LBA 8..0 =0
+		LDX #IDE_Sector
+		JSR WriteIDERegister
+		LDA #0
+		AND #%00001111
+		ORA #%11100000		; enable LBA addressing
+		LDX #IDE_Head
+		JSR WriteIDERegister
+
+		LDA #IDE_READ
+		LDX #IDE_Command
+		JSR WriteIDERegister
+
+.drqloop	LDX #IDE_Status		; wait for DRQ
+		JSR ReadIDERegister
+		AND #%00001000
+		BEQ .drqloop
+
+		LDY #0
+.readdata	LDX #IDE_Data		; fetch data
+		JSR ReadIDERegister
+		INY
+		BNE .readdata
+		JSR HandleError		; if was error - it was address error
+		+beqx .end
+		AND #%00010000		; should be IDNotFound error, sector not there
+.end		RTS
+
+		!zone SetMBRParams
+;---------------------------------------
+; put CHS address of MBR: 0/0/1 into the drive, also setup ports and wait for device ready
+SetMBRParams
+		LDX #$ff		; InitPort
+		STX cia3pa		; port A - output, inactive
+		STX cia3ddra
+		STX cia3pa
+		INX
+		STX cia3ddrb		; port B - input
+
+.waitrdy	LDX #IDE_Status		; wait for device to be ready
+		JSR ReadIDERegister
+		AND #%01000000
+		BEQ .waitrdy
+
+		LDA #1			; set CHS to 0/0/1, 1 sector load
+		LDX #IDE_SectorCount
+		JSR WriteIDERegister
+		LDA #1
+		LDX #IDE_Sector
+		JSR WriteIDERegister
+		LDA #0
+		LDX #IDE_CylinderL
+		JSR WriteIDERegister
+		LDA #0
+		LDX #IDE_CylinderH
+		JSR WriteIDERegister
+
+		LDA #0
+		AND #%00001111
+		ORA #%10100000		; always master, use CHS
+		LDX #IDE_Head
+ 		JMP WriteIDERegister
+
+		!zone WriteIDERegister
+;---------------------------------------
+WriteIDERegister			; X - regnumber, A - value
+		PHA
+		LDA IDE_RegTable,X
+		STA cia3pa
+		AND #IDE_wrmask
+		STA cia3pa
+		LDA #$ff		; port B as output
+		STA cia3ddrb
+		PLA
+		STA cia3pb
+		LDA IDE_RegTable,X
+		STA cia3pa
+		LDA #0			; port B as input
+		STA cia3ddrb
+		RTS
+
+		!zone ReadIDERegister
+;---------------------------------------
+ReadIDERegister				; X - regnumber, A,X - value
+		LDA IDE_RegTable,X
+		STA cia3pa
+		PHA
+		AND #IDE_rdmask
+		STA cia3pa
+		LDX cia3pb
+		PLA
+		STA cia3pa
+		TXA
+		RTS
+
+		!zone WaitIDEBusy
+;---------------------------------------
+; this one waits until IDE status is not busy - drive is ready to
+; accept a new command or report an error
+WaitIDEBusy	LDX #IDE_Status
+		JSR ReadIDERegister
+		AND #%10000000
+		BNE WaitIDEBusy
+		RTS
+
+		!zone SetPartition
+;---------------------------------------
+; set partition in A as current - count offset
+SetPartition	TAY
+		+MoveW firstpartoffs, a0
+		+MoveW firstpartoffs+2, a1
+		TYA
+		BNE .cont
+		TXA
+		BEQ .end
+		TYA
+
+.cont		STA r0L
+		STX r0H
+		; store current/max partition info
+		+MoveW r0, DISK_BASE+$59	;<---
+		+LoadW r1, 0
+		+MoveW DISK_BASE+$55, r2	;<---
+		+MoveW DISK_BASE+$57, r3	;<---
+		JSR LMult
+		CLC
+		LDA r4L:ADC a0L:STA a0L
+		LDA r4H:ADC a0H:STA a0H
+		LDA r5L:ADC a1L:STA a1L
+		LDA r5H:ADC a1H:STA a1H
+
+.end		+MoveW a0, DISK_BASE+$51	;<---
+		+MoveW a1, DISK_BASE+$53	;<---
+
+		LDA hasREU
+		BEQ .end2
+		LDA hddDevice			; put data into REU
+		+subv 8
+		TAX
+		+LoadW SetDevTab, DISK_BASE
+		JSR SetDev
+.end2		RTS
+
+		!zone CheckDriverPresent
+;---------------------------------------
+; check if any of the 4 devices already has HDD driver
+CheckDriverPresent
+		+PushB curDevice
+		+LoadB a0L, 8
+		+LoadB a0H, 0
+.devloop	LDX a0H
+		LDA driveType,x
+		BEQ .drv_notpres
+		CMP #myDrvType
+		BNE .skip
+
+		LDA a0L
+		JSR SetDevice
+		LDX #0
+.sigloop	LDA DISK_BASE+$4e,x	;<---
+		CMP signature,x
+		BNE .skip
+		INX
+		CPX #3
+		BNE .sigloop
+		+bra .drv_pres
+
+.skip		INC a0L
+		INC a0H
+		+CmpBI a0H, 4
+		BNE .devloop
+
+.drv_notpres	LDA #0
+		!byte $2c
+.drv_pres	LDA #1
+		STA a0H
+		+PopB curDevice
+		JSR SetDevice
+		LDX a0H
+		BEQ .end
+		+MoveB a0L, hddDevice
+.end		RTS
+
+		!zone ErasePartition
+;---------------------------------------
+; A/X - partition number
+ErasePartition
+		STA a3L
+		STX a3H
+		JSR SetPartition
+NoSetErasePart
+		LDX #0
+.erase_1	LDA BAM,X
+                STA curDirHead,X
+                LDA #%11111111
+                STA dir2Head,X
+;		STA dir3Head,X
+;		STA dir4Head,X
+;		STA dir5Head,X
+;		STA dir6Head,X
+;		STA dir7Head,X
+;		STA dir8Head,X
+		STA $9c00,x	;<---
+		STA $9b00,x	;...
+		STA $9a00,x
+		STA $9900,x
+		STA $9800,x
+		STA $9700,x	;<---
+                LDA #0
+                STA diskBlkBuf,X
+                INX
+		BNE .erase_1
+                DEX
+                STX diskBlkBuf+1
+                +LoadB r6L, DIR_TRACK
+                +LoadB r6H, 0
+                JSR AllocateBlock
+                +LoadB r6H, 1
+                JSR AllocateBlock
+		+LoadB r6H, 120
+.erase_2	JSR AllocateBlock
+		INC r6H
+		+CmpBI r6H, 128
+		BNE .erase_2
+		
+		LDY #0			; set disk name
+.erase_3	LDA diskname,y
+		BEQ .erase_4
+		STA curDirHead + OFF_DISK_NAME,y
+		INY
+		CPY #12
+		BNE .erase_3
+.erase_4	LDA a3H
+		JSR ConvertHex8
+		LDA a0L
+		STA curDirHead + OFF_DISK_NAME, y
+		INY
+		LDA a0H
+		STA curDirHead + OFF_DISK_NAME, y
+		INY
+		LDA a3L
+		JSR ConvertHex8
+		LDA a0L
+		STA curDirHead + OFF_DISK_NAME, y
+		INY
+		LDA a0H
+		STA curDirHead + OFF_DISK_NAME, y
+
+		JSR PutDirHead
+
+		+LoadB r1L, DIR_TRACK
+		+LoadB r1H, 1           ; first directory sector
+		JSR WriteBuff
+
+		+LoadB r1L, DIR_TRACK
+		+LoadB r1H, 127
+		JSR WriteBuff		; border directory
+
+		RTS
+
+		!zone Math
+;---------------------------------------
+; division and multiplication of 32bit values
+LDiv		; (long)(r0/r1)/(long)(r2/r3)-->(long)(r0/r1), remainder (r4,r5)
+		LDA #0
+		STA r4L:STA r4H:STA r5L:STA r5H
+
+		LDY #32
+LDivLp		ASL r0L:ROL r0H:ROL r1L:ROL r1H
+		ROL    :ROL r4H:ROL r5L:ROL r5H
+		PHA
+		CMP r2L
+		LDA r4H:SBC r2H
+		LDA r5L:SBC r3L
+		LDA r5H:SBC r3H
+		BCC LDivNextBit
+; overflow - need to subtract again, this time store result
+		STA r3H
+		PLA
+		SBC r2L
+		PHA
+		LDA r4H:SBC r2H:STA r4H
+		LDA r5L:SBC r3L:STA r5L
+		INC r0L
+
+LDivNextBit	PLA
+		DEY
+		BNE LDivLp
+		STA r4L
+		RTS
+
+LMult		; (long)(r0/r1)*(long)(r2/r3)-->(long)(r4/r5)
+		LDA #0
+		STA r4L:STA r4H:STA r5L:STA r5H
+
+		LDY #32
+LMultLp		LSR r1H:ROR r1L:ROR r0H:ROR r0L
+		BCC LMultNextBit
+		CLC
+		LDA r4L:ADC r2L:STA r4L
+		LDA r4H:ADC r2H:STA r4H
+		LDA r5L:ADC r3L:STA r5L
+		LDA r5H:ADC r3H:STA r5H
+
+LMultNextBit	ASL r2L:ROL r2H:ROL r3L:ROL r3H
+		DEY
+		BNE LMultLp
+		RTS
+
+
+		!zone InstallDriver
+;---------------------------------------
+; install driver into memory, REU or whatever, set hddDevice
+InstallDriver
+		LDA hasREU
+		BNE REUInst
+		JMP NonREUInst
+
+REUInstErr	JMP finishInstErr
+
+REUInst		LDX #0
+REUInst_1	LDA driveType,x
+		BEQ REUInstFound
+		INX
+		CPX #4
+		BNE REUInst_1
+		BEQ REUInstErr
+
+REUInstFound	LDA #myDrvType
+		STA driveType,x
+		TXA
+		+addv 8
+		STA hddDevice
+
+		LDA addrmode 
+		BEQ REU_LBA
+		LDA #>DSKDRVCHS
+		STA SetDevTab+1
+		LDA #<DSKDRVCHS
+		STA SetDevTab
+		JMP SetDev
+REU_LBA		LDA #>DSKDRVLBA
+		STA SetDevTab+1
+		LDA #<DSKDRVCHS
+		STA SetDevTab
+
+;part below is extracted from GEOS Kernal
+SetDev		LDA SetDevDrivesTabL,x
+		STA SetDevTab + 2
+		LDA SetDevDrivesTabH,x
+		STA SetDevTab + 3
+		LDX #6
+REUInst_2	LDA SetDevTab,x
+		STA r0,x
+		DEX
+		BPL REUInst_2
+		JSR StashRAM
+REUInstEnd	JMP finishInstOK
+
+REUDskDrvSPC	=    $8300			; base for 4*DISK_DRV_LGH disk drivers
+
+SetDevTab
+		!word DSKDRVCHS
+		!word $0000
+		!word DISK_DRV_LGH
+		!byte $00
+
+SetDevDrivesTabL
+		!byte <REUDskDrvSPC+(0*DISK_DRV_LGH)
+		!byte <REUDskDrvSPC+(1*DISK_DRV_LGH)
+		!byte <REUDskDrvSPC+(2*DISK_DRV_LGH)
+		!byte <REUDskDrvSPC+(3*DISK_DRV_LGH)
+SetDevDrivesTabH
+		!byte >REUDskDrvSPC+(0*DISK_DRV_LGH)
+		!byte >REUDskDrvSPC+(1*DISK_DRV_LGH)
+		!byte >REUDskDrvSPC+(2*DISK_DRV_LGH)
+		!byte >REUDskDrvSPC+(3*DISK_DRV_LGH)
+
+NonREUInst
+    !if (machine=64) {
+		LDX #1
+NonREU_1	LDA driveType,x
+		BEQ NonREU_2
+		INX
+		CPX #4
+		BNE NonREU_1
+		JMP finishInstErr
+NonREU_2	LDA #myDrvType
+		STA driveType,x
+		TXA
+		+addv 8
+		STA hddDevice
+    } else {
+		LDA driveType+1
+		BEQ intInstall
+		CMP driveType
+		BNE ownInstall
+intInstall	JMP InternalInst
+ownInstall
+		+LoadB driveType+2, myDrvType
+		+LoadB hddDevice, 10
+    }
+; two different drivers, third one goes through own swapper
+
+		+LoadB ramExpSize, (128/64)
+		+LoadB sysRAMFlg, %01000000
+
+		+MoveW SetDevice+1, mySETDEVBASE	; fix base adresses
+		+MoveW VerifyRAM+1, mySWAPDRVBASE
+		LDA mySWAPDRVBASE			; fix address of JMP Swapper
+		CLC					; in SetDevice patch
+		ADC #Swapper-SWAPDRV
+		STA externalSwap+1
+		LDA mySWAPDRVBASE+1
+		ADC #0
+		STA externalSwap+2
+    !if (machine=128) {
+		LDA mySWAPDRVBASE
+		CLC
+		ADC #flagDevAdr-SWAPDRV
+		STA flagAdr1+1
+		STA flagAdr2+1
+		LDA mySWAPDRVBASE+1
+		ADC #0
+		STA flagAdr1+2
+		STA flagAdr2+2
+    }
+		JSR i_MoveData
+		!word SETDEV			; SetDevice patch
+mySETDEVBASE	!word $8c00
+		!word (DSKDRVCHS-SETDEV)
+		JSR i_MoveData
+		!word SWAPDRV			; Swapper
+mySWAPDRVBASE	!word $8d00
+		!word (SETDEV-SWAPDRV)
+
+		JSR i_MoveData			; swapout driver
+		!word DISK_BASE			; current to safe place
+		!word $4000			;<---
+		!word DISK_DRV_LGH
+		LDA addrmode
+		BEQ ownLBA
+		JSR i_MoveData			; driver->current
+		!word DSKDRVCHS
+		!word DISK_BASE
+		!word DISK_DRV_LGH
+		JMP ownCont
+ownLBA		JSR i_MoveData
+		!word DSKDRVLBA
+		!word DISK_BASE
+		!word DISK_DRV_LGH
+ownCont		JSR Swapper			; swapout our driver
+		JSR i_MoveData
+		!word $4000			;<---
+		!word DISK_BASE
+		!word DISK_DRV_LGH		; restore current
+
+		JMP finishInstOK
+
+    !if (machine=128) {
+InternalInst
+		LDX #1				; insert in free driveType slot
+		LDA driveType+1
+		BEQ intInst_1
+		INX
+intInst_1	LDA #myDrvType
+		STA driveType,X
+		TXA
+		+addv 8
+		STA hddDevice
+
+		LDA addrmode
+		BEQ intLBA
+		LDA #>DSKDRVCHS
+		STA r0H
+		LDA #<DSKDRVCHS
+		STA r0L
+		JMP intInstt
+intLBA		LDA #>DSKDRVLBA
+		STA r0H
+		LDA #<DSKDRVLBA
+		STA r0L
+intInstt	LDA #0
+		LDX #$D0			; bank0 swapped driver base
+		STA r1L
+		STX r1H
+		+LoadW r2, DISK_DRV_LGH
+		LDX #1				; from bank1
+		STX r3L
+		DEX
+		STX r3H				; to bank0
+		JSR MoveBData
+    }
+finishInstOK	LDX #0
+		!byte $2c
+finishInstErr	LDX #1
+		RTS
+
+;---------------------------------------
+IDE_RegTable	+IDE_RegisterTable
+
+;---------------------------------------
+; included philez
+
+BAM		!binary "bin/bam.hdd",,2
+
+SWAPDRV
+	!if (machine=128) {
+		!source "swapdrv128hdd.tas"
+	} else {
+		!source "swapdrv64hdd.tas"
+	}
+
+SETDEV
+	!if (machine=64) {
+		!source "setdevice64.tas"
+	} else {
+		!source "setdevice128.tas"
+	}
+
+DSKDRVCHS
+	!binary "idehdd-chs.bin",,2
+DSKDRVLBA
+	!binary "idehdd-lba.bin",,2
+
+!endoffile
+
+;stuff below may be included ONLY as binary
+!set useCHS=0
+DSKDRVCHS
+		!pseudopc DISK_BASE
+		!source "drv/ide-hdd.tas"
+		!realpc
+!set useCHS=1
+DSKDRVLBA
+		!pseudopc DISK_BASE
+		!source "drv/ide-hdd.tas"
+		!realpc
+

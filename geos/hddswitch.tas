@@ -1,0 +1,343 @@
+;30.5.97, 24.7.97
+;23.9.97 - C128 version
+;more in December '97
+;17.05.98 - fixed driver swapper
+;22.08.99 - changed dirhead position
+;27.08.99 - internal ram version
+;28.08.99 - single drive setup support
+;20.07.00 - HDD (1ST VERSION)
+;05.08.01 - HDD (2ND VERSION)
+;06.08.01 - ACME port, REU installation ability, GEOS64/128 common
+;08.08.01 - maximized bastard
+
+;15-23.08.01 - hddtool based on inithdd
+;23.08.01	- hddswitch as stripped-down hddtool
+
+;LOOKOUT: non-settable constants in driver, search for <---,!!!
+
+!source "config.inc"
+!source "inc/const.inc"
+!source "inc/jumptab.inc"
+!source "inc/diskdrv.inc"
+!source "inc/geossym.inc"
+!source "inc/geosmac.acme.inc"
+!source "inc/ide3.inc"
+
+!cpu 6502
+
+;!set machine		= 128			; 64 for C64, 128 for C128
+;!set useCHS		= 0			; 0 - true, !=0 false
+
+    !if (machine=64) {
+	!to "hddswitch.64"
+    } else {
+	!to "hddswitch.128"
+    }
+
+;myDrvType	= $81
+
+		*=$1000+2
+
+		JMP ProgExec
+
+;--------------------------------------
+; all data here
+    !if (machine=64) {
+tmpCPU_DATA	!byte 0		; restore to CPU_DATA upon exit
+    }
+bootDevice	!byte 0
+hddDevice	!byte 0
+hasREU		!byte 0
+deltaFlag	!byte 0		; 0 - add do current_offs, !=0 - subtract from current
+numspace	!byte 0,0,0,0,0
+signature	!text "HDD"		; disk driver must have it
+
+; dboxes
+infoDlgBox	!byte DEF_DB_POS | 1		; show two lines of text (a0), (a1)
+		!byte OK, DBI_X_2, DBI_Y_2
+		!byte DBVARSTR, 10, 32, a0
+		!byte DBVARSTR, 10, 48, a1
+		!byte NULL
+
+enterdecDlgBox	!byte DEF_DB_POS | 1		; enter decimal number or CANCEL
+		!byte CANCEL, DBI_X_0, DBI_Y_2
+		!byte OK, DBI_X_2, DBI_Y_2
+		!byte DBVARSTR, 10, 32, a0
+		!byte DBGETSTRING, 10, 48, a1, 5
+		!byte NULL
+
+getpartnum	!text BOLDON, "Enter partition number:", 0
+
+noInterface1    !text BOLDON, "Could not find hard disk", 0
+noInterface2	!text "check hardware or recompile.", 0
+
+nodriver1	!text BOLDON, "Could not find IDE-HDD", 0
+nodriver2	!text "disk driver.",0
+
+hextab		!text "0123456789ABCDEF"
+
+;--------------------------------------
+ProgExec	+MoveB curDevice, bootDevice	; preserve boot device
+		+MoveB ramExpSize, hasREU	; preserve REU presence
+	!if (machine=64) {
+		+MoveB CPU_DATA, tmpCPU_DATA
+		+LoadB CPU_DATA, IO_IN
+	}
+		JSR FindHDDDevice
+		JSR GetSetPartition
+		+MoveB bootDevice, curDevice	; restore boot device number
+		JSR SetDevice
+DoEnterDeskTop
+	!if (machine=64) {
+		+MoveB tmpCPU_DATA, CPU_DATA
+	}
+		+LoadW appMain, RstrAppl	; oh boy, we're leaving!
+		RTS
+
+;---------------------------------------
+FindHDDDevice
+		; check if interface is present
+		+LoadB cia3ddra, $ff	; setup ports
+		+LoadB cia3ddrb, 0
+		+LoadB cia3pa, $f5	; try to read IDE_Status
+		+MoveB cia3pb, r0L
+		+LoadB cia3pa, $ff
+		+CmpBI cia3pa, $ff	; should be same
+		BNE NoInterfaceError
+		+CmpB cia3pb, r0L	; should be different
+		BEQ NoInterfaceError
+
+		JSR CheckDriverPresent	; check if hdd driver is already in system
+		+beqx NoDriverError
+		LDA hddDevice		; set hdd as current device
+		JMP SetDevice
+
+NoInterfaceError
+		+LoadW a0, noInterface1
+		+LoadW a1, noInterface2
+		JMP FatalError
+NoDriverError	+LoadW a0, nodriver1
+		+LoadW a1, nodriver2
+FatalError	+LoadW r0, infoDlgBox
+		JSR DoDlgBox
+		JMP DoEnterDeskTop
+
+		!zone DoDecDlg
+;--------------------------------------
+; returns word in r0 and C=0 or C=1 for CANCEL, for error - repeats query
+DoDecDlg
+		+LoadW a1, numspace
+		LDY #0
+		TYA
+		STA (a1),y
+		+LoadW r0, enterdecDlgBox
+		JSR DoDlgBox
+		+CmpBI sysDBData, CANCEL
+		BEQ DoDDlgEndC
+		+LoadW r0, 0
+		; now find end of string
+		LDY #0
+		LDX #0
+		LDA (a1),y
+		BNE .cont
+		JMP DoDDlgEndC
+.cont		INY
+		LDA (a1),y
+		BNE .cont
+		DEY
+.loop		LDA dectabL,x
+		STA r1L
+		LDA dectabH,x
+		STA r1H
+		LDA (a1),y
+		JSR ConvFromDec
+		BCS DoDDlgEndC
+		INX
+		DEY
+		BPL .loop
+DoDDlgEnd	LDA r0L
+		CLC
+		RTS
+DoDDlgEndC	SEC
+		RTS
+
+dectabL		!byte <1, <10, <100, <1000, <10000
+dectabH		!byte >1, >10, >100, >1000, >10000
+
+; convert number, multiply A by (r1) and add to r0, use r2 if needed, C=0; C=1 for non [0-9]
+; preserve X and Y
+ConvFromDec	STX a0L
+		STY a0H
+		CMP #'0'
+		BCC DoDDlgEndC
+		CMP #'9'+1
+		BCS DoDDlgEndC
+		AND #%00001111
+		STA r2L
+		LDA #0
+		STA r2H
+		LDX #r1
+		LDY #r2
+		JSR DMult
+		+AddW r1, r0
+		LDY a0H
+		LDX a0L
+		CLC
+		RTS
+
+		!zone GetPartition
+;---------------------------------------
+GetSetPartition
+.defpartget	+LoadW a0, getpartnum
+		JSR DoDecDlg
+		BCC .defpartgetc
+.newequal	RTS
+.defpartgetc	+CmpB DISK_BASE+$5C, r0H	;<---
+		BEQ .defpartgetcc
+		BCC .defpartget
+.defpartgetcc	+CmpB DISK_BASE+$5B, r0L	;<---
+		BEQ .cont
+		BCC .defpartget
+.cont		+MoveW r0, a0
+		+CmpB DISK_BASE+$5A, r0H	;<---
+		BEQ .complow
+		BCC .newgreater
+.complow	+CmpB DISK_BASE+$59, r0L	;<---
+		BEQ .newequal
+		BCC .newgreater
+
+		+LoadB deltaFlag, 1		; new < current
+		BNE .cont2
+.newgreater	+LoadB deltaFlag, 0		; new > current
+.cont2		SEC				; r2:= current-new
+		LDA DISK_BASE+$59:SBC r0L:STA r2L
+		LDA DISK_BASE+$5A:SBC r0H:STA r2H
+		LDA deltaFlag
+		BNE .skipeor
+		LDA r2L:EOR #$ff:STA r2L	; r2:=|r2|
+		LDA r2H:EOR #$ff:STA r2H
+		INC r2L:BNE *+4 :INC r2H
+
+.skipeor	+LoadW r3, 0
+		+MoveW DISK_BASE+$55, r0	;<--- partition_size
+		+MoveW DISK_BASE+$57, r1	;<---
+		JSR LMult			;r0/1*r2/3->r4/5
+
+		LDA deltaFlag			; curoffs:=currofs +/- r4/5
+		BNE .dosub
+		CLC
+		LDA DISK_BASE+$51:ADC r4L:STA DISK_BASE+$51	;<---
+		LDA DISK_BASE+$52:ADC r4H:STA DISK_BASE+$52	;<---
+		LDA DISK_BASE+$53:ADC r5L:STA DISK_BASE+$53	;<---
+		LDA DISK_BASE+$54:ADC r5H:STA DISK_BASE+$54	;<---
+		+bra .quit
+
+.dosub		SEC
+		LDA DISK_BASE+$51:SBC r4L:STA DISK_BASE+$51	;<---
+		LDA DISK_BASE+$52:SBC r4H:STA DISK_BASE+$52	;<---
+		LDA DISK_BASE+$53:SBC r5L:STA DISK_BASE+$53	;<---
+		LDA DISK_BASE+$54:SBC r5H:STA DISK_BASE+$54	;<---
+
+.quit		+MoveW a0, DISK_BASE+$59	; store current partition #
+		LDA hasREU
+		BEQ .end
+		LDA hddDevice			; put data into REU
+		+subv 8
+		TAX
+		JSR SetDev
+.end		RTS
+
+		!zone CheckDriverPresent
+;---------------------------------------
+; check if any of the 4 devices already has HDD driver
+CheckDriverPresent
+		+PushB curDevice
+		+LoadB a0L, 8
+		+LoadB a0H, 0
+.devloop	LDX a0H
+		LDA driveType,x
+		BEQ .drv_notpres
+		CMP #myDrvType
+		BNE .skip
+
+		LDA a0L
+		JSR SetDevice
+		LDX #0
+.sigloop	LDA DISK_BASE+$4e,x	;<---
+		CMP signature,x
+		BNE .skip
+		INX
+		CPX #3
+		BNE .sigloop
+		+bra .drv_pres
+
+.skip		INC a0L
+		INC a0H
+		+CmpBI a0H, 4
+		BNE .devloop
+
+.drv_notpres	LDA #0
+		!byte $2c
+.drv_pres	LDA #1
+		STA a0H
+		+PopB curDevice
+		JSR SetDevice
+		LDX a0H
+		BEQ .end
+		+MoveB a0L, hddDevice
+.end		RTS
+
+		!zone LMult
+;---------------------------------------
+LMult		; (long)(r0/r1)*(long)(r2/r3)-->(long)(r4/r5)
+		LDA #0
+		STA r4L:STA r4H:STA r5L:STA r5H
+
+		LDY #32
+LMultLp		LSR r1H:ROR r1L:ROR r0H:ROR r0L
+		BCC LMultNextBit
+		CLC
+		LDA r4L:ADC r2L:STA r4L
+		LDA r4H:ADC r2H:STA r4H
+		LDA r5L:ADC r3L:STA r5L
+		LDA r5H:ADC r3H:STA r5H
+
+LMultNextBit	ASL r2L:ROL r2H:ROL r3L:ROL r3H
+		DEY
+		BNE LMultLp
+		RTS
+
+		!zone SetDev
+;---------------------------------------
+;part below is extracted from GEOS Kernal
+SetDev		LDA SetDevDrivesTabL,x
+		STA SetDevTab + 2
+		LDA SetDevDrivesTabH,x
+		STA SetDevTab + 3
+		LDX #6
+REUInst_2	LDA SetDevTab,x
+		STA r0,x
+		DEX
+		BPL REUInst_2
+		JMP StashRAM
+
+REUDskDrvSPC	=    $8300			; base for 4*DISK_DRV_LGH disk drivers
+
+SetDevTab
+		!word DISK_BASE
+		!word $0000
+		!word DISK_DRV_LGH
+		!byte $00
+
+SetDevDrivesTabL
+		!byte <REUDskDrvSPC+(0*DISK_DRV_LGH)
+		!byte <REUDskDrvSPC+(1*DISK_DRV_LGH)
+		!byte <REUDskDrvSPC+(2*DISK_DRV_LGH)
+		!byte <REUDskDrvSPC+(3*DISK_DRV_LGH)
+SetDevDrivesTabH
+		!byte >REUDskDrvSPC+(0*DISK_DRV_LGH)
+		!byte >REUDskDrvSPC+(1*DISK_DRV_LGH)
+		!byte >REUDskDrvSPC+(2*DISK_DRV_LGH)
+		!byte >REUDskDrvSPC+(3*DISK_DRV_LGH)
+
+ProgEnd

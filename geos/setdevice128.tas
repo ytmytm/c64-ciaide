@@ -1,0 +1,72 @@
+; Maciej 'YTM/Elysium' Witkowiak
+;
+; This is a patch to SetDevice ($C2B0)
+; routine for GEOS128
+; it allows to exchange current disk driver
+; with custom driver and swapper routine
+;
+; It allows for 4 devices of 3 different types
+; only one of them can have bit 7 set (ram device)
+; and it must be the custom device.
+; Custom swapper must swap up to $9000-$9d80 area.
+
+;Swapper		= $9f68		; custom swapper
+GEOSSwapper	= $E05D		; swapper provided by system
+
+flagDrv		= $FFFD
+
+;		*= $E5F5
+
+		CMP curDevice
+		BEQ sameDev
+
+		PHA
+		LDA curDevice
+		CMP #8
+		BCC nonDrv_1
+		CMP #16+1
+		BCS nonDrv_1
+		JSR ExitTurbo
+
+nonDrv_1	+PopB curDevice
+sameDev		CMP #8
+		BCC nonDrv_2
+		CMP #16+1
+		BCS nonDrv_2
+
+		TAY			;new device in Y
+		LDX curDrive		;old device in X
+
+		LDA driveType-8,Y
+		STA curType		;set new drive type
+		STY curDrive		;set new drive number
+
+;----------------------------------------------------
+
+		LDA driveType-8,X	;are new and old type equal?
+nextDev		EOR driveType-8,Y
+		BEQ nonDrv_2		;yes - do nothing end exit
+		CMP #3         		;1541<->1571
+		BEQ internalSwap
+
+		BIT curType		;is it RamDos (handled by us)
+		BPL externalSwap	;no
+
+		LDA driveType-8,X	;yes - swap with current
+flagAdr1	STA flagDrv		;save swapped-out type
+
+;---------------------------------------
+externalSwap	JSR Swapper		;swapper routine
+		BIT curType		;got RamDos (handled by us)?
+		BMI nonDrv_2		;yes - exit
+flagAdr2	LDA flagDrv		;no, so...
+		LDY curDrive		;...check if target type match
+		+bra nextDev
+;		JMP nextDev
+;---------------------------------------
+internalSwap	JSR GEOSSwapper
+
+nonDrv_2	LDX #0
+		RTS
+;---------------------------------------
+;flagDrv		!byte 0

@@ -1,0 +1,261 @@
+;
+; CIA/IDE programming examples (only 8 bit interface)
+; Maciej 'YTM/Elysium' Witkowiak <ytm@elysium.pl>
+;
+; 09.08.2001
+;
+
+!cpu 6502
+!to "example.prg"
+
+; here are some definitions, look there for base address of CIA#3
+!source "ide3.inc"
+
+!set useCHS=0				;0 - true, !=0 - false
+; if false - use LBA addressing instead of CHS (Cyllinder/Head/Sector)
+; this is generally better than CHS _if_ your drive supports it,
+; mine 40MB Conner doesn't :(
+
+lbanum	= $fb				;int32
+sector  = lbanum
+cyl	= lbanum+1
+head	= lbanum+3
+
+		*=$1000
+
+		JMP ReadSector
+		JMP WriteSector		; DO NOT RUN THIS ON VALUABLE DISK!
+		JMP Identify
+		JMP SpinDown
+		JMP SpinUp
+
+;---------------------------------------
+; this one reads the first sector from the disk to
+; the screen area at $0400
+; in case of error it tries to return value in X similar to
+; CBM DOS error number
+ReadSector
+	!if (useCHS=0) {
+		LDX #1			; in CHS sectors are counted from 1
+		STX sector
+		DEX
+		STX cyl			; cyllinder (track) 0
+		STX cyl+1
+		STX head		; head 0
+	} else {
+		LDX #0			; in LBA you just need to provide
+		STX lba+0		; 28-bit number of sector,
+		STX lba+1		; lba+0 keeps the lowest byte
+		STX lba+2		; lba+3 keeps the highest byte
+		STX lba+3
+	}
+
+		JSR SetHDDParams	; load sector parameters into registers
+
+		LDA #IDE_READ		; issue command
+		LDX #IDE_Command
+		JSR WriteIDERegister
+		JSR WaitIDEBusy		; this is probably unneeded
+
+Read_Lp0	LDX #IDE_Status		; wait for DRQ
+		JSR ReadIDERegister
+		AND #%00001000
+		BEQ Read_Lp0		; should never do more than once if waiting for BUSY above
+
+		LDY #0
+Read_Lp1	LDX #IDE_Data		; fetch the data
+		JSR ReadIDERegister
+		STA $0400,Y
+		INY
+		BNE Read_Lp1
+
+HandleError	LDX #IDE_Status		; common for read/write
+		JSR ReadIDERegister
+		AND #%00000001		; get error status
+		BEQ Read_End		; no error
+		LDX #IDE_Error
+		JSR ReadIDERegister	; get error code
+		TAX
+		AND #%00010101		; AddressMarkNotFound|Abort|sector not found (wrong params)
+		BNE HErr_1
+		TXA
+		AND #%01000000		; irrecoverable R/W error
+		BNE HErr_2
+		LDX #23			; other unknow error (will never happen)
+		!byte $2c
+HErr_1		LDX #20
+		!byte $2c
+HErr_2		LDX #23
+		!byte $2c
+Read_End	LDX #0
+		RTS
+
+;---------------------------------------
+; this one saves $0400-$04ff area into the first
+; sector of the HDD, usage is similar to ReadSector
+; DO NOT RUN IT ON DISK WITH ANY VALUABLE DATA!
+WriteSector
+	!if (useCHS=0) {
+		LDX #1			; in CHS sectors are counted from 1
+		STX sector
+		DEX
+		STX cyl			; cyllinder (track) 0
+		STX cyl+1
+		STX head		; head 0
+	} else {
+		LDX #0			; in LBA you just need to provide
+		STX lba+0		; 28-bit number of sector,
+		STX lba+1		; lba+0 keeps the lowest byte
+		STX lba+2		; lba+3 keeps the highest byte
+		STX lba+3
+	}
+
+		JSR SetHDDParams	; load sector parameters into registers
+
+		LDA #IDE_WRITE
+		LDX #IDE_Command
+		JSR WriteIDERegister
+
+Write_Lp0	LDX #IDE_Status		; wait for DRQ
+		JSR ReadIDERegister
+		AND #%00001000
+		BEQ Write_Lp0
+
+		LDY #0
+Write_Lp1	LDX #IDE_Data
+		LDA $0400,Y
+		JSR WriteIDERegister
+		INY
+		BNE Write_Lp1
+
+		JSR WaitIDEBusy		; wait for command completion
+		JMP HandleError
+
+;---------------------------------------
+; this function copies data provided by HDD with IDENTIFY command
+; it has little value with 8-bit interface
+Identify
+		JSR WaitIDEReady	; wait for device to be ready
+		LDA #IDE_IDENTIFY	; issue command
+		LDX #IDE_Command
+		JSR WriteIDERegister
+		JMP Read_Lp0		; fetch data into the screen
+
+;---------------------------------------
+; this one turns the drive motor off
+SpinDown
+		JSR WaitIDEReady
+		LDA #IDE_SPINDOWN
+SendCommand	LDX #IDE_Command
+		JMP WriteIDERegister
+
+;---------------------------------------
+; this one turns the drive motor on
+SpinUp
+		JSR WaitIDEReady
+		LDA #IDE_SPINUP
+		JMP SendCommand
+
+;---------------------------------------
+; set ports in proper mode
+InitPort	LDX #$ff
+		STX cia3pa		; port A - output, inactive
+		STX cia3ddra
+		STX cia3pa
+		INX
+		STX cia3ddrb		; port B - input
+		RTS
+
+;---------------------------------------
+; load sector parameters from lbanum space (for LBA)
+; or CHS
+SetHDDParams
+		JSR WaitIDEReady	; wait for device to be ready
+
+		LDA #1
+		LDX #IDE_SectorCount
+		JSR WriteIDERegister
+	!if (useCHS=0) {
+		LDA sector
+		LDX #IDE_Sector
+		JSR WriteIDERegister
+		LDA cyl
+		LDX #IDE_CylinderL
+		JSR WriteIDERegister
+		LDA cyl+1
+		LDX #IDE_CylinderH
+		JSR WriteIDERegister
+
+		LDA head
+		AND #%00001111
+		ORA #%10100000		; always master, use CHS
+		LDX #IDE_Head
+	} else {
+		LDA lbanum+0
+		LDX #IDE_Sector
+		JSR WriteIDERegister
+		LDA lbanum+1
+		LDX #IDE_CylinderL
+		JSR WriteIDERegister
+		LDA lbanum+2
+		LDX #IDE_CylinderH
+		JSR WriteIDERegister
+		LDA lbanum+3
+		AND #%00001111
+		ORA #%11100000		; always master, use LBA
+		LDX #IDE_Head
+	}
+ 		JSR WriteIDERegister
+		RTS
+
+;---------------------------------------
+WriteIDERegister			; X - regnumber, A - value
+		PHA
+		LDA IDE_RegTable,X
+		STA cia3pa
+		AND #IDE_wrmask
+		STA cia3pa
+		LDA #$ff		; port B as output
+		STA cia3ddrb
+		PLA
+		STA cia3pb
+		LDA IDE_RegTable,X
+		STA cia3pa
+		LDA #0			; port B as input
+		STA cia3ddrb
+		RTS
+
+;---------------------------------------
+ReadIDERegister				; X - regnumber, A,X - value
+		LDA IDE_RegTable,X
+		STA cia3pa
+		PHA
+		AND #IDE_rdmask
+		STA cia3pa
+		LDX cia3pb
+		PLA
+		STA cia3pa
+		TXA
+		RTS
+
+;---------------------------------------
+; this one waits until IDE status is not busy - drive is ready to
+; accept a new command or report an error
+WaitIDEBusy	LDX #IDE_Status
+		JSR ReadIDERegister
+		AND #%10000000
+		BNE WaitIDEBusy
+		RTS
+
+;---------------------------------------
+; this one waits until IDE device is ready
+; use it before doing ANYTHING with the drive (only once is enough)
+WaitIDEReady	JSR InitPort		;this will be called only on the first run
+WaitIR_1	LDX #IDE_Status
+		JSR ReadIDERegister
+		AND #%01000000
+		BEQ WaitIR_1
+		RTS
+
+;---------------------------------------
+IDE_RegTable	+IDE_RegisterTable
