@@ -40,6 +40,7 @@
 ;31.8.2001 - changed $80ff in GetNxtDirEntry to diskBlkBuf+$ff
 ;23.7.2002 - rewritten to use 255x256, one BAM at a time in memory, counter of free blocks
 ;24.7.2002 - added support for IDE64 interface
+;07.8.2002 - added CIA variant with improved compatibility to real data+control lines order
 
 ; layout: maximum we can get with 16 bits for T&S.
 ; ~16MB: 255 tracks x 256 sectors, track 0 does not exist, directory is on track 18
@@ -760,8 +761,9 @@ WriteIDERegister			; X - regnumber, A - value
 .wrreg		STA IDE64_IDEBase
 		RTS
 	} else {
+	    !if (extraCareful=0) {
 		PHA
-		LDA IDE_RegTable,X
+		LDA IDE_RegTable,x
 		STA cia3pa
 		AND #IDE_wrmask
 		STA cia3pa
@@ -769,11 +771,33 @@ WriteIDERegister			; X - regnumber, A - value
 		STA cia3ddrb
 		PLA
 		STA cia3pb
-		LDA IDE_RegTable,X
+		LDA IDE_RegTable,x
 		STA cia3pa
 		LDA #0			; port B as input
 		STA cia3ddrb
 		RTS
+	    } else {
+		PHA
+		LDA IDE_RegTable,x
+		PHA
+		ORA #IDE_cs0set
+		STA cia3pa		; CS0 inactive, set address only
+		PLA
+		STA cia3pa		; CS0 active
+		AND #IDE_wrmask
+		STA cia3pa		; WR active
+		LDA #$ff		; port B as output
+		STA cia3ddrb
+		PLA
+		STA cia3pb		; set data
+		LDA IDE_RegTable,x
+		STA cia3pa		; WR inactive
+		ORA #IDE_cs0set
+		STA cia3pa		; CS0 inactive
+		LDA #0			; port B as input
+		STA cia3ddrb
+		RTS
+	    }
 	}
 ;---------------------------------------
 ReadIDERegister				; X - regnumber, A,X - value
@@ -786,7 +810,8 @@ ReadIDERegister				; X - regnumber, A,X - value
 		TAX
 		RTS
 	} else {
-		LDA IDE_RegTable,X
+	    !if (extraCareful=0) {
+		LDA IDE_RegTable,x
 		STA cia3pa
 		PHA
 		AND #IDE_rdmask
@@ -796,6 +821,24 @@ ReadIDERegister				; X - regnumber, A,X - value
 		STA cia3pa
 		TXA
 		RTS
+	    } else {
+		LDA IDE_RegTable,x
+		PHA
+		ORA #IDE_cs0set		; CS0 inactive
+		STA cia3pa
+		PLA
+		PHA
+		STA cia3pa		; CS0 active
+		AND #IDE_rdmask
+		STA cia3pa		; RD active
+		LDX cia3pb
+		PLA
+		STA cia3pa		; CS0 active, RD inactive
+		ORA #IDE_cs0set
+		STA cia3pa		; CS0 inactive
+		TXA
+		RTS
+	    }
 	}
 ;---------------------------------------
 WaitIDEBusy	LDX #IDE_Status
