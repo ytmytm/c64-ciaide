@@ -43,7 +43,8 @@ Edit config.inc and put correct machine value there (64 or 128)
 COMPILING
 Do: make
 and correct .cvt files will be built and saved in compiled/ directory
-Do: make clean to remove all built files
+Do: make clean
+to remove all built files
 
 
 
@@ -95,44 +96,46 @@ PARAMETERS
 Disk driver in its current state takes the first sector to store configuration
 variables. The rest of the disk is divided into partition-like virtual disks
 (called 'partition' over this document) that you can change while running GEOS.
-Each partition has exactly 15360 sectors and 15232 are available for data so
-there is 3808KB of free space. There are 65536 partitions available for total
-amount of 238GB (physically it would be 476GB because of 8bit interface). This
-is more than any ATA-3 IDE disk will have. Standard limits the size to 128GB.
+Each partition has exactly 65024 sectors and 64768 are available for data so
+there is 16192KB of free space. There are 65536 partitions available for total
+amount of 1012GB (physically it would be 2024GB because of 8bit interface).
+This is more than any ATA-3 IDE disk will ever have. Standard limits the size
+to 128GB.
+Note that you can't use disk smaller than 32MB to hold one 16MB partition
+with 8bit interface.
 
 Transfer rate is... acceptable (erm, I don't know the speed :). It works
 somewhat better on C128 in 2MHz mode, it seems that much time is spent on
 calculating sector data, however my disk uses CHS only and LBA to CHS
 calculations seem to be long (32 bit arithmetic is involved). If your disk
 supports LBA this is not an issue because driver internally uses only LBA.
-
+Anyway it doesn't seem to be much slower than RAM disk without DMA
+(e.g. geoRAM) and it is way faster than 1541/71.
 
 
 DISK STRUCTURE
-My GEOS disk driver can handle only $3C00 sectors at once. This is due to
-memory shortage which prevents from loading more BAMs. Tracks are numbered
-from 1 to 120, sectors from 0 to 127. I reserved the last bit of sector
-number for possible 16bit version. Disk driver contains current partition
-size (now always $00003C00) and offset from start of disk to start of
-current partition. Within partition layout is as below:
+Tracks are numbered from 1 to 255. Sectors are numbered from 0 to 255.
+Disk driver contains current partition size (now always $0000FF00) and
+offset from start of disk to start of current partition. Within partition
+layout is as below:
 
 sector offset
 $00000000	track 1, sector 0
-$0000007F	track 1, sector 127
-$00000080	track 2, sector 0
+$000000FF	track 1, sector 255
+$00000100	track 2, sector 0
 ...
-$00000880	track 18, sector 0
+$00001100	track 18, sector 0
 ...
-$00003BFF	track 120, sector 127
+$0000FEFF	track 254, sector 255
 
 Directory occupies whole track 18. (18,0) is the usual directory header, as in
-1541. It contains link to (18,1) where file descriptions are stored. During
-erasing (18,127) is initialized as GEOS border directory sector and (18-120) to
-(18-126) are allocated as additional BAMs. BAM starts in (18,126) continues in
-(18-125) to (18-120) and the last portion is in (18,0). BAM sectors do not store
-link in first two bytes - all 256 bytes are used for allocation map. The last
-sector (18,0) contains only $80 bytes of allocation map in $04-$84 offset.
+1541. It contains link to (18,1) where file descriptions are stored.
+Sector (18,223) contains GEOS border directory and the following 32 sectors
+(18,224)-(18,255) contain BAM bitmap. BAM Sectors do not store link in first
+two bytes - all 256 bytes are used for allocation map. Sector (18,224) has
+map for tracks 1-9.
 The rest of directory - file descriptions is identical to classic 1541 scheme.
-
+There are 222 sectors for file descriptions so a partition may contain up to
+4368 files.
 
 Maciej 'YTM/Elysium' Witkowiak <ytm@elysium.pl>
