@@ -278,7 +278,6 @@ SNF_Search	LDA dir2Head, x
 SNF_NextBAM	LDY memSectorBAM	; end of BAM sector, try next one
 		INY
 		BEQ SNF_DiskFull	; can't go to next one
-		STY memSectorBAM
 		TYA
 		JSR CheckBAMSector	; load next sector
 		LDX #0
