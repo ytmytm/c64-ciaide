@@ -1,0 +1,58 @@
+
+Elysium is proud to announce a new software and hardware solution for your
+Commodore mass data storage needs.
+
+The 2002-07-25 release covers only changes in GEOS driver.
+
+The CIA-IDE is yet another approach to connect an IDE hard drive to C64/128.
+It differs from previous similar projects in these areas:
+
+- it is the simpliest one (only two chips required; just one in case of C128)
+- it is free (documentation and software),
+- the software is available in source code form under GNU GPL,
+- there _exists_ a ready to use GEOS 2.0 driver.
+
+The latest release of the GEOS driver includes following changes:
+
+- partition size has been increased from 3840KB to almost 16MB
+  (yet still there are 65536 partitions available - more GBs than your IDE disk
+   will ever have :)
+
+- BAM and sector handling routines have been optimized
+
+- C64 with a RAM expansion is fully supported
+
+- last but not least - there is IDE64 support. Note that it means IDE64-style
+  IDE interface is supported, not IDE64 firmware. It is not compatible with
+  IDE64 filesystem, but it should be possible to have two drives - one for
+  GEOS, the other for IDE64 native filesystem. Currently you cannot share the
+  disk between the two systems.
+
+The driver still utilizes 8-bit interface hence only half of disk is used.
+This will change, but don't hold your breath. It may take from 7 days to 7
+months.
+
+There is a configuration program and disk driver for GEOS 2.0. It can
+handle any hard drive compatible with at least ATA-2 standard (no more than
+128GB) in 16MB pieces (physically 32MB). Such virtual disks can be easily
+changed with a Desk Accessory that is also available.
+For GEOS64 you need a RAM expansion (IDE64 internal RAM suits that),
+GEOS128 has no extra requirements.
+
+I don't have Wheels so I don't know how my installation program will work
+there. Any help, suggestions or sponsorship ;) are welcome.
+
+Documentation, source codes and binaries made out of them are available on:
+
+http://members.elysium.pl/ytm/html/ciaide.html
+
+There is also GeoMakeDir on GEOS page there, an application for 1541/71 but it
+should be especially useful for CIA-IDE/IDE64 users. It allows to create fake
+subdirectories that can be switched using Desk Accessories.
+
+
+Special thanks go to IDE64 creators for their kind generosity.
+
+
+Maciej Witkowiak <ytm@elysium.pl>
+YTM/Elysium
