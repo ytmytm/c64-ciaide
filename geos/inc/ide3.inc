@@ -22,6 +22,7 @@ upperddr	= cia1base+2	; data direction for upper 8 bits port, input/output
 
 IDE_rdmask   = %11110111	; mask for activating /rd
 IDE_wrmask   = %11101111	; mask for activating /wr
+IDE_cs0set   = %00000010	; value to deactivate /cs0
 
 ;used IDE commands
 
