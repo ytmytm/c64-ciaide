@@ -82,7 +82,7 @@ ProgType		= AUTO_EXEC		;GEOS executable filetype
 			!byte ProgType		;GEOS filetype
 			!byte 02		;*year
 			!byte 07		;*month
-			!byte 23		;*day
+			!byte 25		;*day
 			!byte 17		;*hour
 			!byte 20		;*minute
 			
@@ -168,7 +168,11 @@ ProgType		= AUTO_EXEC		;GEOS executable filetype
 		.tmp=*
 			;*usage note (up to 95 chars)
 			!text "This is config program for IDE-HDD "
+		!if (useIDE64=0) {
+			!text "on IDE64 interface"
+		} else {
 			!text "on CIA#3 interface"
+		}
 			!byte NULL		;string termination
 			!fill ((.tmp+96)-*),$00 ;header padding
 			}

@@ -1,7 +1,8 @@
 
 COPYRIGHT
-Source code of GEOS driver for CIA-IDE, installer and tools is covered by
-GNU GPL license.
+Source code of GEOS driver for a IDE interface (CIAIDE or IDE64), installer
+and tools is covered by GNU GPL license.
+
 Specifically it means that you are free to modify it to other flavours of IDE
 interfaces for Commodore or even other 8-bit 6502 computers but you MUST
 provide source code of your changed version.
@@ -10,17 +11,19 @@ provide source code of your changed version.
 REQUIREMENTS/COMPATIBILITY
 For compiling the stuff, you need ACME, a free cross-assembler.
 
-You need a CIA-IDE interface as described in my articles elsewhere. By default
-this source code expects that it can be found at $D300 I/O page. You can change
-this by editing proper lines in inc/ide3.inc file.
+You need an IDE interface, it can be CIA-IDE as described in my articles elsewhere.
+By default this source code expects that it can be found at $D300 I/O page. You
+can change this by editing proper lines in inc/ide3.inc file.
+You may also use IDE64 interface, but BE SURE TO READ IMPORTANT NOTE BELOW.
+
 This source code uses 8-bit interface only.
-Drive: any IDE disk drive will be good. I have tested my code with a disk that
-was not able to use LBA addressing, but LBA-optimized driver will be installed if
-such disk would be detected. You should check your disk parameters. Installer
-tries autoconfiguration, but it may fail. Wrong parameters mean wrong estimation
-of disk size and possible loss of data. Cylinder/Head/Sector numbers are needed
-also for LBA-capable drives.
-Only MASTER device is adressed on IDE cable.
+Drive: any IDE disk drive larger than 32MB will be good. I have tested my code
+with both types of disk - un/supporing LBA, with sizes ranging from 40MB to 2.5GB.
+You should check your disk parameters. Installer tries autoconfiguration, but
+it may fail. Wrong parameters mean wrong estimation of disk size and possible
+loss of data. Cylinder/Head/Sector numbers are needed also for LBA-capable drives
+just to measure their size.
+Currently only MASTER device is adressed on IDE cable.
 
 
 Supported platforms: GEOS 2.0 64/128 and...
@@ -32,12 +35,29 @@ C64 without REU
     - memory expansion is required, currently supported are:
 	+60K
 	RamCart 64/128K
+	IDE64 internal RAM
 
 
 
 CONFIGURING
-Edit config.inc and put correct machine value there (64 or 128)
+Edit config.inc and put correct machine value there (64 or 128).
+Set there also correct type of IDE interface (IDE64 or CIAIDE).
 
+
+IMPORTANT NOTE FOR IDE64 OWNERS!!! BLAME YOURSELF IF YOU DIDN'T READ IT!!!
+Filesystem used by this software is totally incompatible with native IDE64
+one, so:
+- you can't access IDE64 data from GEOS and vice-versa
+- on a one disk you can use either IDE64 or filesystem provided by this driver,
+  not both
+- by doing disk initialization with hddtool on IDE64 native disk with data -
+  everything will be erased.
+I didn't try, but it should be possible to use two disks - master as GEOS
+drive (this driver probes only master) and slave as IDE64 device.
+Warning! The driver uses part IDE64 internal RAM as swap space for exchanging
+disk drivers. You may lose your IDE64 BIOS settings (floppy speeder etc.).
+After power-on IDE64 ROM might hang while identifying hard disk. If it happens -
+press RUN/STOP+RESTORE.
 
 
 COMPILING
@@ -51,8 +71,8 @@ to remove all built files
 INSTALL
 Now you can transfer the resulting files to Commodore world and unConvert it
 with Convert v2.5 or GeoConvert98.
-Or you can use c1541 and geoswrite command to put unconverted file
-on a disk image.
+Or you may use c1541 and geoswrite command to put unconverted file
+on a disk image and write that disk image at once.
 
 After unconverting copy auto-exec to your bootdisk and place it so
 it would be between Configure and InstallDriveD auto-execs. If you are
@@ -64,7 +84,7 @@ If you don't have REU but you do use two different kinds of disk drives
 able to get to drive C. It can be found at
 ftp://ftp.elysium.pl/tools/geos_software/updates/
 
-HDDTool is for configuring HDD and installing driver, it is an Auto-Exec
+HDDTool is for configuring HDD and driver installer, it is an Auto-Exec
 HDDSwitch is for changing virtual partitions, it is a DeskAccessory
 
 
@@ -75,7 +95,7 @@ HDD driver if necessary (it will be necessary on boot :).
 Information about disk structure is saved in the very first sector of hard disk.
 Read source code for more. Anyway, IDE HDD driver will not be installed if:
 - there is no IDE interface
-- there is no disk hooked to IDE interface
+- there is no disk hooked to IDE interface (master)
 - disk is not configured
 Therefore you must run hddtool for the first time from DeskTop to configure
 your disk. Some menu items will not be available unless disk is configured.
@@ -109,7 +129,7 @@ somewhat better on C128 in 2MHz mode, it seems that much time is spent on
 calculating sector data, however my disk uses CHS only and LBA to CHS
 calculations seem to be long (32 bit arithmetic is involved). If your disk
 supports LBA this is not an issue because driver internally uses only LBA.
-Anyway it doesn't seem to be much slower than RAM disk without DMA
+Anyway it doesn't seem to be much slower than RAM disk without DMA at 2MHz
 (e.g. geoRAM) and it is way faster than 1541/71.
 
 

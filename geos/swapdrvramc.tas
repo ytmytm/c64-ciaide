@@ -14,7 +14,7 @@
 				;$9F57 - GEOS 128
 		LDX #0
 		RTS
-flagDevAdr	BRK
+		BRK
 		LDX #0
 		RTS
 		BRK
@@ -25,25 +25,30 @@ flagDevAdr	BRK
 		LDX #0
 		RTS
 ;---------------------------------------
-Swapper		+PushW r0
+Swapper
+		PHP
+		SEI
+		+PushB CPU_DATA
+		+LoadB CPU_DATA, KRNL_IO_IN
 		LDY #0
-		STY r0L
+		STY $80
 		STY $DE01
 		LDA #>DISK_BASE
-		STA r0H
+		STA $81
 		LDX #RC_firstFreeBlock
 Swp_Main	STX $DE00
-Swp_Loop	LDA (r0),Y
+Swp_Loop	LDA ($80),Y
 		PHA
 		LDA $DF00,Y
-		STA (r0),Y
+		STA ($80),Y
 		PLA
 		STA $DF00,Y
 		INY
 		BNE Swp_Loop
-		INC r0H
+		INC $81
 		INX
-		CPX #RC_firstFreeBlock+14
+	    	CPX #RC_firstFreeBlock+13
 		BNE Swp_Main
-		+PopW r0
+		+PopB CPU_DATA
+		PLP
 		RTS

@@ -2,8 +2,12 @@
 !source "inc/jumptab.inc"
 !source "inc/geossym.inc"
 !source "inc/geosmac.acme.inc"
-!source "inc/ide3.inc"
 !source "config.inc"
+!if (useIDE64=0) {
+    !source "inc/ide64.inc"
+} else {
+    !source "inc/ide3.inc"
+}
 
 !cpu 6502
 

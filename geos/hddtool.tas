@@ -10,14 +10,12 @@
 ;06.08.01 - ACME port, REU installation ability, GEOS64/128 common
 ;08.08.01 - maximized bastard
 ;15-23.08.01 - hddtool based on inithdd
-;23.07.02 - even bigger partitions
+;23.07.02 - even bigger partitions (16MB)
+;24.07.02 - IDE64 8-bit support, C64 support (haven't I ever test it???)
+;25.07.02 - full IDE64 8-bit support, C64 support fixed
 
 ;LOOKOUT: non-settable constants in driver, search for <---,!!!
 ;LOOKOUT: MASTERSLAVE unimplemented, always set to MASTER
-;BUG: severe problems with $01 on C64, Read/WriteIDE Register should be protected,
-;     same with cia3 accesses, for the rest app should run on system default memconfig
-;     this has low impact on performance as disk driver is used to format, only
-;     autoconfig/detection is done via own routines
 
 ;constant value
 HDD_PARTITIONSIZE_L	= $ff00
@@ -38,14 +36,18 @@ MBR_OFFS_PARTITIONSIZE	= $12	; 2/3/4/5 long
 MBR_OFFS_1STPARTITION	= $16	; 6/7/8/9 long
 MBR_OFFS_LAST		= $1a
 
-!source "config.inc"
 !source "inc/const.inc"
 !source "inc/jumptab.inc"
 !source "inc/diskdrv.inc"
 !source "inc/geossym.inc"
 !source "inc/geossym2.inc"
 !source "inc/geosmac.acme.inc"
-!source "inc/ide3.inc"
+!source "config.inc"
+!if (useIDE64=0) {
+    !source "inc/ide64.inc"
+} else {
+    !source "inc/ide3.inc"
+}
 
 !cpu 6502
 
@@ -86,7 +88,7 @@ spc		!word 0		; sectors per cylinder
 numspace	!byte 0,0,0,0,0	; temporary for decimal input
 namespace	!byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0	; temporary for disk name
     !if (machine=64) {
-tmpCPU_DATA	!byte 0		; restore to CPU_DATA upon exit
+tmpCPU_DATA	= $87 ;!byte 0		; restore to CPU_DATA upon exit
     }
 ;--------------------------------------
 ; all data here
@@ -96,7 +98,8 @@ diskname	!text "HDD DISK #",0	; default diskname after erasing
 
 ; top level menu
 appMenu		!byte 0, 15
-appMenuRight	!word 0, 120		; 90 is ideal for 40
+		!word 0
+appMenuRight	!word 120		; 90 is ideal for 40
 		!byte 2 | HORIZONTAL
 
 		!word geosTxt
@@ -172,7 +175,7 @@ clearscreen	!byte MOVEPENTO
 		!byte 0
 		!byte NEWPATTERN, 2
 		!byte RECTANGLETO
-clrscr_wide	!word 319 | DOUBLE_W 
+clrscr_wide	!word 319 | DOUBLE_W 		; clear DOUBLE_W flag for GEOS64
 		!byte 199
 		!byte NULL
 
@@ -209,10 +212,14 @@ hddinfoDlgBox	!byte DEF_DB_POS | 1		; HDD parameters
 
 installErr1	!text BOLDON, "Could not install driver, you are", 0
 installErr2	!text "using 4 drives or need RAM expansion.", 0
-
+	!if (useIDE64=0) {
+noInterface1	!text BOLDON, "Could not find IDE64 interface",0
+noInterface2	!text "check hardware or ROM version.",0
+	} else {
 noInterface1    !text BOLDON, "Could not find interface at $"
 interfaceHI	!text "D300", 0
 noInterface2	!text "check hardware or recompile.", 0
+	}
 
 eraseaboutname	!text BOLDON, "You are going to erase disk:", 0
 
@@ -251,7 +258,11 @@ hddinfoTxt3	!text PLAINTEXT, "Total: "
 hddinfoallpart	!text "00000 partitions, "
 hddinfodefpart	!text "00000 default.",0
 
+	!if (useIDE64=0) {
+about1	    	!text BOLDON, "HDDTool for IDE64 interface", 0
+	} else {
 about1		!text BOLDON, "HDDTool and IDE interface", 0
+	}
 about2		!text "by Maciej Witkowiak, VII 2002", 0
 
 spindown1	!text BOLDON, "Number of 5s. units to poweroff:", 0
@@ -263,11 +274,14 @@ ProgStart	+MoveB curDevice, bootDevice	; preserve boot device
 		+MoveB ramExpSize, hasREU	; preserve REU presence
 	!if (machine=64) {
 		+MoveB CPU_DATA, tmpCPU_DATA
-		+LoadB CPU_DATA, IO_IN
 	}
+	!if (useIDE64=0) {
+		; any special initialization?
+	} else {
 		LDA #>cia3base			; put correct base into interfaceHI
 		JSR ConvertHex8
 		+MoveW a0, interfaceHI
+	}
 		JSR InstallHDDDriver		; try to install disk driver
 		+CmpBI firstBoot, TRUE
 		BNE AutoExec
@@ -289,7 +303,24 @@ DoEnterDeskTop
 ; try to setup hdd driver and params, some errors are fatal (so exit then)
 ; set current device to hdd
 InstallHDDDriver
+	!if (machine=64) {
+		+LoadB CPU_DATA, IO_IN
+	}
 		; check if interface is present
+	!if (useIDE64=0) {
+		+CmpB $de60, $de60
+		BNE InterfceNtPrs
+		CMP #$49			; "I"
+		BNE InterfceNtPrs
+		+CmpB $de61, $de61
+		BNE InterfceNtPrs
+		CMP #$44			; "D"
+		BNE InterfceNtPrs
+		+CmpB $de62, $de62
+		BNE InterfceNtPrs
+		CMP #$45			; "E"
+		BEQ InterfacePresent
+	} else {
 		+LoadB cia3ddra, $ff	; setup ports
 		+LoadB cia3ddrb, 0
 		+LoadB cia3pa, $f4	; try to read IDE_Status
@@ -299,20 +330,34 @@ InstallHDDDriver
 		BNE InterfceNtPrs
 		+CmpB cia3pb, r0L	; should be different
 		BNE InterfacePresent
-InterfceNtPrs	JMP NoInterfaceError
+	}
+InterfceNtPrs
+	!if (machine=64) {
+		+MoveB tmpCPU_DATA, CPU_DATA
+	}
+		JMP NoInterfaceError
 InterfacePresent
-		JSR AnalyzeMBR		; try to read drive parameters
+		LDX #IDE_Status		; suck data from buffer whatever it is
+		JSR ReadIDERegister
+		AND #%00001000
+		BEQ goAnalyze
+		LDX #IDE_Data
+		JSR ReadIDERegister
+		JMP InterfacePresent
+
+goAnalyze	JSR AnalyzeMBR		; try to read drive parameters
 		LDA hddConfigured
 		BNE ExitNow		; exit if config not succeeded
 		JSR CheckDriverPresent	; check if hdd driver is already in system
 		+bnex SkipInstall
 	!if (machine=64) {
-		+PushB CPU_DATA
-		+LoadB CPU_DATA, RAM_64K
+		PHP
+		SEI
+		+MoveB tmpCPU_DATA, CPU_DATA
 	}
 		JSR InstallDriver
 	!if (machine=64) {
-		+PopB CPU_DATA
+		PLP
 	}
 		+beqx SkipInstall
 		JMP DriverInstallError
@@ -340,8 +385,7 @@ notAutoExec	; program entry for interactive usage (non auto-exec)
 		AND #%00000001				; clear shitty stuff for GEOS64
 		STA clrscr_wide+1
 		+LoadB appMenuRight, 90			; fix for 40 columns
-isC128
-		+LoadW r0, clearscreen
+isC128		+LoadW r0, clearscreen
 		JSR GraphicsString
 		+LoadW r0, appMenu
 		JSR DoMenu
@@ -531,8 +575,7 @@ SetSpinTime	LDA spintime
 		JSR WriteIDERegister
 		LDA #IDE_SETSPINDOWN
 		LDX #IDE_Command
-		JSR WriteIDERegister
-		RTS
+		JMP WriteIDERegister
 
 		!zone DoHDDInfo
 ;---------------------------------------
@@ -840,6 +883,38 @@ AnalyzeMBR	+LoadB hddConfigured, 1
 ;---------------------------------------
 ; try do do some autoconfiguration of disk
 ReadAutoConfig	JSR SetMBRParams
+	!if (useIDE64=0) {
+	; read whole sector on your own, use 16bits for cylinders
+		LDA #IDE_IDENTIFY	; issue command
+		LDX #IDE_Command
+		JSR WriteIDERegister
+		JSR WaitIDEBusy		; this is probably unneeded
+
+.drqloop	LDX #IDE_Status		; wait for DRQ
+		JSR ReadIDERegister
+		AND #%00001000
+		BEQ .drqloop		; should never do more than once if waiting for BUSY above
+
+	    !if (machine=64) {
+		+LoadB CPU_DATA, IO_IN
+	    }
+		LDY #0
+.readdata	LDA IDE64_IDEBase
+		LDA IDE64_IDEDataH
+		STA dir2Head,y
+		LDA IDE64_IDEDataL
+		STA diskBlkBuf,y
+		INY
+		BNE .readdata
+	    !if (machine=64) {
+		+MoveB tmpCPU_DATA, CPU_DATA
+	    }
+		+MoveB diskBlkBuf+1, cylinders
+		+MoveB diskBlkBuf+3, heads
+		+MoveB diskBlkBuf+6, sectors
+		+MoveB dir2Head+1, cylinders+1
+		RTS
+	} else {
 		LDA #IDE_IDENTIFY
 		JSR ReadMBR_2
 		+MoveB diskBlkBuf+1, cylinders
@@ -874,6 +949,7 @@ ReadAutoConfig	JSR SetMBRParams
 		BNE .rdautloop
 .rdautfound	DEC cylinders+1
 		RTS
+	}
 
 		!zone ReadMBR
 ;---------------------------------------
@@ -971,41 +1047,61 @@ CheckLBA	JSR SetMBRParams	; set CHS params (0/0/1)
 ;---------------------------------------
 ; put CHS address of MBR: 0/0/1 into the drive, also setup ports and wait for device ready
 SetMBRParams
+	!if (useIDE64=0) {
+		; any special init?
+	} else {
+	    !if (machine=64) {
+		+LoadB CPU_DATA, IO_IN
+	    }
 		LDX #$ff		; InitPort
 		STX cia3pa		; port A - output, inactive
 		STX cia3ddra
 		STX cia3pa
 		INX
 		STX cia3ddrb		; port B - input
-
+	    !if (machine=64) {
+		+MoveB tmpCPU_DATA, CPU_DATA
+	    }
+	}
 .waitrdy	LDX #IDE_Status		; wait for device to be ready
 		JSR ReadIDERegister
-		AND #%01000000
+		AND #%01010000
 		BEQ .waitrdy
 
 		LDA #1			; set CHS to 0/0/1, 1 sector load
 		LDX #IDE_SectorCount
 		JSR WriteIDERegister
-		LDA #1
+		LDA #1			; sector 1
 		LDX #IDE_Sector
 		JSR WriteIDERegister
-		LDA #0
+		LDA #0			; cylinder 0
 		LDX #IDE_CylinderL
 		JSR WriteIDERegister
 		LDA #0
 		LDX #IDE_CylinderH
 		JSR WriteIDERegister
 
-		LDA #0
+		LDA #0			; head 0
 		AND #%00001111
 		ORA #%10100000		; always master, use CHS
 		LDX #IDE_Head
  		JMP WriteIDERegister
 
-		!zone WriteIDERegister
+	    	!zone WriteIDERegister
 ;---------------------------------------
 WriteIDERegister			; X - regnumber, A - value
-		PHA
+	    	PHA
+        !if (machine=64) {
+		+LoadB CPU_DATA, IO_IN
+        }
+	!if (useIDE64=0) {
+		TXA
+		ORA #$20
+		STA .wrreg+1
+		PLA
+		STA IDE64_IDEDataL
+.wrreg		STA IDE64_IDEBase
+	} else {
 		LDA IDE_RegTable,X
 		STA cia3pa
 		AND #IDE_wrmask
@@ -1018,11 +1114,26 @@ WriteIDERegister			; X - regnumber, A - value
 		STA cia3pa
 		LDA #0			; port B as input
 		STA cia3ddrb
+	}
+        !if (machine=64) {
+		+MoveB tmpCPU_DATA,CPU_DATA
+        }
 		RTS
 
 		!zone ReadIDERegister
 ;---------------------------------------
 ReadIDERegister				; X - regnumber, A,X - value
+	!if (machine=64) {
+		+LoadB CPU_DATA, IO_IN
+	}
+	!if (useIDE64=0) {
+		TXA
+		ORA #$20
+		STA .rdreg+1
+.rdreg	    	LDA IDE64_IDEBase
+		LDA IDE64_IDEDataL
+		TAX
+	} else {
 		LDA IDE_RegTable,X
 		STA cia3pa
 		PHA
@@ -1031,6 +1142,10 @@ ReadIDERegister				; X - regnumber, A,X - value
 		LDX cia3pb
 		PLA
 		STA cia3pa
+	}
+        !if (machine=64) {
+		+MoveB tmpCPU_DATA, CPU_DATA
+        }
 		TXA
 		RTS
 
@@ -1359,8 +1474,20 @@ ownInstall
 		LDA mySWAPDRVBASE+1
 		ADC #0
 		STA externalSwap+2
+	!if (machine=64) {
+	    !if ((useIDE64=0)|(usePlus60K=0)) {
+		LDA mySWAPDRVBASE			; fix address of SwapperStart
+		CLC					; in swapdrvide64
+		ADC #SwapperStart-SWAPDRV
+		STA SwpCpyLoop+1
+		LDA mySWAPDRVBASE+1
+		ADC #0
+		STA SwpCpyLoop+2
+	    }
+		+LoadB CPU_DATA, RAM_64K
+	}
     !if (machine=128) {
-		LDA mySWAPDRVBASE
+		LDA mySWAPDRVBASE			; fix adresses in swapdrv128
 		CLC
 		ADC #flagDevAdr-SWAPDRV
 		STA flagAdr1+1
@@ -1375,31 +1502,34 @@ ownInstall
 mySETDEVBASE	!word $8c00
 		!word (DSKDRVCHS-SETDEV)
 		JSR i_MoveData
-		!word SWAPDRV			; Swapper
+		!word SWAPDRV			; Swapper code
 mySWAPDRVBASE	!word $8d00
 		!word (SETDEV-SWAPDRV)
 
 		JSR i_MoveData			; swapout driver
 		!word DISK_BASE			; current to safe place
-		!word $4000			;<---
+		!word $4000			;<--- past end of hddtool!
 		!word DISK_DRV_LGH
 		LDA addrmode
-		BEQ ownLBA
-		JSR i_MoveData			; driver->current
+		BEQ ownLBA			; choose correct driver (CHS/LBA)
+		JSR i_MoveData			; my driver->current
 		!word DSKDRVCHS
 		!word DISK_BASE
 		!word DISK_DRV_LGH
 		JMP ownCont
-ownLBA		JSR i_MoveData
+ownLBA		JSR i_MoveData			; my driver->current
 		!word DSKDRVLBA
 		!word DISK_BASE
 		!word DISK_DRV_LGH
-ownCont		JSR Swapper			; swapout our driver
+ownCont		JSR Swapper			; current->swapout
 		JSR i_MoveData
-		!word $4000			;<---
+		!word $4000			;<--- past end of hddtool!
 		!word DISK_BASE
 		!word DISK_DRV_LGH		; restore current
 
+	!if (machine=64) {
+		+MoveB tmpCPU_DATA, CPU_DATA
+	}
 		JMP finishInstOK
 
     !if (machine=128) {
@@ -1442,28 +1572,42 @@ finishInstErr	LDX #1
 		RTS
 
 ;---------------------------------------
+	!if (useIDE64=0) {
+	    ; any additional data?
+	} else {
 IDE_RegTable	+IDE_RegisterTable
-
+	}
 ;---------------------------------------
 ; included philez
 
+; diskHeader template
 BAM		!binary "bin/bam.hdd",,2
 
+; disk driver swapper - needs to exchange at most $9000-$9d80 or
+;  at least $9000-$9610 (last time I checked)
+; WARNING: each one of those must be freely relocatable! No LDA $xxxx, No JMP $xxxx
 SWAPDRV
 	!if (machine=128) {
 		!source "swapdrv128hdd.tas"
 	} else {
-	    !if (useRamCart=0) {
-		!source "swapdrvramc.tas"
+	    !if (useIDE64=0) {
+		!source "swapdrvide64.tas"
 	    } else {
-		!if (usePlus60K=0) {
-		    !source "swapdrvplus60k.tas"
+		!if (useRamCart=0) {
+		    !source "swapdrvramc.tas"
 		} else {
-		    !source "swapdrv64hdd.tas"
+		    !if (usePlus60K=0) {
+			!source "swapdrvplus60k.tas"
+		    } else {
+			!source "swapdrv64hdd.tas"
+		    }
 		}
 	    }
 	}
 
+; SetDevice patch that is used when REU is not present and we have to use different
+; disk driver cache area
+; WARNING: each one of those must be freely relocatable! No LDA $xxxx, No JMP $xxxx
 SETDEV
 	!if (machine=64) {
 		!source "setdevice64.tas"
@@ -1471,11 +1615,13 @@ SETDEV
 		!source "setdevice128.tas"
 	}
 
+; precompiled disk drivers - one for CHS, other optimized for LBA addressing
 DSKDRVCHS
 	!binary "idehdd-chs.bin",,2
 DSKDRVLBA
 	!binary "idehdd-lba.bin",,2
 
+; that's the end, the rest shows how it would be done if world was perfect
 !endoffile
 
 ;stuff below may be included ONLY as binary

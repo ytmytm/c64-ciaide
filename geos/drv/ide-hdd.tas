@@ -39,6 +39,7 @@
 ;26.8.2001 - rewritten SetNextFree
 ;31.8.2001 - changed $80ff in GetNxtDirEntry to diskBlkBuf+$ff
 ;23.7.2002 - rewritten to use 255x256, one BAM at a time in memory, counter of free blocks
+;24.7.2002 - added support for IDE64 interface
 
 ; layout: maximum we can get with 16 bits for T&S.
 ; ~16MB: 255 tracks x 256 sectors, track 0 does not exist, directory is on track 18
@@ -694,7 +695,9 @@ SPT_NextBit	DEY
 ;!!!		RTS
 ;---------------------------------------
 SetHDDParams
-
+	!if (useIDE64=0) {
+; any special init?
+	} else {
 ; set ports in proper mode
 		LDX #$ff
 		STX cia3pa		; port A - output, inactive
@@ -702,6 +705,7 @@ SetHDDParams
 		STX cia3pa
 		INX
 		STX cia3ddrb		; port B - input
+	}
 ; wait for device ready
 RDYLoop		LDX #IDE_Status
 		JSR ReadIDERegister
@@ -746,6 +750,16 @@ RDYLoop		LDX #IDE_Status
 ;!!! 		JSR WriteIDERegister
 ;---------------------------------------
 WriteIDERegister			; X - regnumber, A - value
+	!if (useIDE64=0) {
+		PHA
+		TXA
+		ORA #$20
+		STA .wrreg+1
+		PLA
+		STA IDE64_IDEDataL
+.wrreg		STA IDE64_IDEBase
+		RTS
+	} else {
 		PHA
 		LDA IDE_RegTable,X
 		STA cia3pa
@@ -760,8 +774,18 @@ WriteIDERegister			; X - regnumber, A - value
 		LDA #0			; port B as input
 		STA cia3ddrb
 		RTS
+	}
 ;---------------------------------------
 ReadIDERegister				; X - regnumber, A,X - value
+	!if (useIDE64=0) {
+		TXA
+		ORA #$20
+		STA .rdreg+1
+.rdreg	    	LDA IDE64_IDEBase
+		LDA IDE64_IDEDataL
+		TAX
+		RTS
+	} else {
 		LDA IDE_RegTable,X
 		STA cia3pa
 		PHA
@@ -772,6 +796,7 @@ ReadIDERegister				; X - regnumber, A,X - value
 		STA cia3pa
 		TXA
 		RTS
+	}
 ;---------------------------------------
 WaitIDEBusy	LDX #IDE_Status
 		JSR ReadIDERegister
@@ -779,12 +804,17 @@ WaitIDEBusy	LDX #IDE_Status
 		BNE WaitIDEBusy
 		RTS
 ;---------------------------------------
+	!if (useIDE64=0) {
+; any special data here?
+	} else {
 IDE_RegTable	+IDE_RegisterTable
+	}
 ;---------------------------------------
 borderFlag	=*	;!byte 0
 tmpmobenble	=*+1	;!byte 0
 tmpgrirqen	=*+2	;!byte 0
 tmpPS		=*+3	;!byte 0
 tmpclkreg	=*+4	;!byte 0
-tmpCPU_DATA	=*+5	;!byte 0
-memSectorBAM	=*+6	;!byte 0	;$00 or $e0-$ff
+memSectorBAM	=*+5	;!byte 0	;$00 or $e0-$ff
+tmpCPU_DATA	=*+6	;!byte 0
+

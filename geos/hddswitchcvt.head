@@ -168,7 +168,11 @@ ProgType		= DESK_ACC		;GEOS executable filetype
 		.tmp=*
 			;*usage note (up to 95 chars)
 			!text "This DA will switch partitions "
+		!if (useIDE64=0) {
+			!text "on IDE64 interface"
+		} else {
 			!text "on IDE-CIA interface"
+		}
 			!byte NULL		;string termination
 			!fill ((.tmp+96)-*),$00 ;header padding
 			}

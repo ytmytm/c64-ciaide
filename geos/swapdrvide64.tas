@@ -24,30 +24,32 @@ SwpCpyLoop	LDA SwapperStart,x
 		BNE SwpCpyLoop
 		JMP $0100
 
-SwapperStart
+SwapperStart	
 		PHP
 		SEI
 		+PushB CPU_DATA
 		+LoadB CPU_DATA, IO_IN
 		LDY #0
 		STY $80
-		STY $D100
+		STY $82
+		STY $DEFF		; switch to STND config
 		LDA #>DISK_BASE
 		STA $81
+		LDA #>IDE64_SWAPRAM_BASE
+		STA $83
 Swp_Loop	LDA ($80),Y
 		TAX
-		LDA #$80
-		STA $D100
-		LDA ($80),Y
+		STA $DEFE		; switch to OPEN - RAM in $1000-$7FFF
+		LDA ($82),Y
 		PHA
 		TXA
-		STA ($80),Y
-		LDA #$00
-		STA $D100
+		STA ($82),Y
+		STA $DEFF		; switch to STND config
 		PLA
 		STA ($80),y
 		INY
 		BNE Swp_Loop
+		INC $83
 		INC $81
 		LDA $81
 		CMP #>DISK_BASE+$0d00

@@ -15,13 +15,17 @@
 
 ;LOOKOUT: non-settable constants in driver, search for <---,!!!
 
-!source "config.inc"
 !source "inc/const.inc"
 !source "inc/jumptab.inc"
 !source "inc/diskdrv.inc"
 !source "inc/geossym.inc"
 !source "inc/geosmac.acme.inc"
-!source "inc/ide3.inc"
+!source "config.inc"
+!if (useIDE64=0) {
+    !source "inc/ide64.inc"
+} else {
+    !source "inc/ide3.inc"
+}
 
 !cpu 6502
 
@@ -98,6 +102,20 @@ DoEnterDeskTop
 ;---------------------------------------
 FindHDDDevice
 		; check if interface is present
+	!if (useIDE64=0) {
+		+CmpB $de60, $de60
+		BNE NoInterfaceError
+		CMP #$49			; "I"
+		BNE NoInterfaceError
+		+CmpB $de61, $de61
+		BNE NoInterfaceError
+		CMP #$44			; "D"
+		BNE NoInterfaceError
+		+CmpB $de62, $de62
+		BNE NoInterfaceError
+		CMP #$45			; "E"
+		BNE NoInterfaceError
+	} else {
 		+LoadB cia3ddra, $ff	; setup ports
 		+LoadB cia3ddrb, 0
 		+LoadB cia3pa, $f5	; try to read IDE_Status
@@ -107,7 +125,7 @@ FindHDDDevice
 		BNE NoInterfaceError
 		+CmpB cia3pb, r0L	; should be different
 		BEQ NoInterfaceError
-
+	}
 		JSR CheckDriverPresent	; check if hdd driver is already in system
 		+beqx NoDriverError
 		RTS
