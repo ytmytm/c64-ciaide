@@ -1,0 +1,72 @@
+From ytm@friko.onet.pl Sat Nov 17 15:10:36 2001
+Date: Sat, 17 Nov 2001 15:10:36 +0100
+From: Maciej Witkowiak <ytm@friko.onet.pl>
+To: ListaC64 <c64scene@list.elysium.pl>
+Subject: Announcement: CIA-IDE
+Message-ID: <20011117151036.A2632@bossstation.localdomain>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+Content-Disposition: inline
+User-Agent: Mutt/1.3.18i
+X-Reply-To: ytm@elysium.pl
+Status: RO
+Content-Length: 2080
+Lines: 56
+
+Elysium is proud to announce a new software and hardware solution for your
+Commodore mass data storage needs.
+
+
+The CIA-IDE is yet another approach to connect an IDE hard drive to C64/128.
+It differs from previous similar projects in these areas:
+
+- it is the simpliest one (only two chips required (or just one in case of
+  C128))
+- it is free (documentation and software),
+- the software is available in source code form under GNU GPL,
+- there _exists_ a ready to use GEOS 2.0 driver.
+
+
+The name comes from using a third CIA chip (it can be also a VIA). The
+interface is 8-bit, but 16-bit version can be built without using any
+additional chips. Due to simplicity and my laziness I`ve chosen 8 bits,
+leaving half of disk unused.
+
+
+There is a configuration program and disk driver for GEOS 2.0. It can
+handle any hard drive compatible with at least ATA-2 standard (that is no
+more than 128GB) in 3840KB pieces. Such virtual disks can be easily changed
+with a Desk Accessory that is also available. For GEOS 64 you need a REU,
+there are no requirements for GEOS 128.
+
+
+I don't have Wheels so I don't know how my installation program will work
+there. Any help, suggestions or sponsorship ;) are welcome.
+
+
+There is a preliminary version of wedge that makes it possible to access IDE
+from BASIC. I'm planning to make an additional or replacement ROM for CBM
+Kernal.
+
+
+Documentation, source codes and binaries made out of them are available on:
+
+ftp://ftp.elysium.pl/groups/Elysium/Projects/ciaide/
+
+
+There is also GeoMakeDir there, an application for 1541/71 but it
+should be especially useful CIA-IDE users. It allows to use
+subdirectories that could be changed using Desk Accessories.
+
+
+A word of explanation: this project was not meant to compete with IDE64 or
+any other similar project. I did it for fun and I want to share my work so
+other could benefit from it too. Adapting my software for any other
+interface that offers raw IDE registers is just a matter of small changes.
+
+
+Maciej Witkowiak <ytm@elysium.pl>
+YTM/Elysium
+(with help of Elysium Public Relations Department)
+
+
