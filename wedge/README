@@ -1,0 +1,7 @@
+
+make, LOAD and SYS49152, uses device 7 and $8000-$8900 space
+
+It is designed to work, not to be reliable or accurate.
+LOAD"$",7 works
+Eventually will be enhanced to something worth putting on ROM
+together with Kernal.

@@ -1,0 +1,54 @@
+
+		!zone ReadFile
+		; >r1 - start t&S
+		; >r0 - loadaddy or NULL
+ReadFile	+LoadW r4, diskBlkBuf
+		JSR __ReadBlock
+		+bnex RdFile6
+		LDA r0L
+		ORA r0H
+		BNE .skiploadaddr
+		+MoveW diskBlkBuf+2, r0
+.skiploadaddr	LDY #$fc
+		LDA diskBlkBuf
+		BNE first_1
+		LDY diskBlkBuf+1
+		DEY
+		DEY
+		DEY			; -4 (for LA) +1 (because equal to last)
+		BEQ RdFile5
+first_1		STY r1L
+		LDX #0
+		LDY #0
+		+LoadB CPU_DATA, $30
+first_2		LDA diskBlkBuf+4,x
+		STA (r0),y
+		INY
+		INX
+		CPX r1L
+		BNE first_2
+		BEQ RdFileCont
+
+RdFile1 	JSR __ReadBlock
+		+bnex RdFile6
+		LDY #$fe
+		LDA diskBlkBuf
+		BNE RdFile2
+		LDY diskBlkBuf+1
+		DEY
+		BEQ RdFile5
+RdFile2 	STY r1L
+		+LoadB CPU_DATA, $30
+RdFile4 	LDA diskBlkBuf+1,y
+		DEY
+		STA (r0),y
+		BNE RdFile4
+RdFileCont	+LoadB CPU_DATA, KRNL_IO_IN
+		+AddB r1L, r0L
+		BCC *+4
+		INC r0H
+RdFile5		+MoveB diskBlkBuf+1, r1H
+		+MoveB diskBlkBuf, r1L
+		BNE RdFile1
+		LDX #0
+RdFile6 	RTS

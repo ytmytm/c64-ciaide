@@ -1,0 +1,196 @@
+
+		!zone ReadDirectory
+ReadDirectory	; generate BASIC listing with directory contents, put into (r0), update (r0)
+		JSR GetDirHead			; load diskname and free blocks info
+		LDY #0				; put link to next line
+		LDA r0L
+		+addv $1f
+		STA (r0),y : INY
+		LDA r0H
+		ADC #0
+		STA (r0),y : INY
+		LDA #0				; line number
+		STA (r0),y : INY
+		STA (r0),y : INY
+		; put diskname
+						; fix
+		LDA #$12			; put rvson
+		STA (r0),y : INY
+		JSR PutQuote
+		LDX #0
+.disknamelp	LDA curDirHead+OFF_DISK_NAME,x
+		CMP #$a0
+		BNE .cont
+		LDA #$20
+.cont		STA (r0),y : INY
+		INX
+		CPX #16
+		BNE .disknamelp
+		JSR PutQuote
+		LDA #$20			; put space
+		STA (r0),y : INY
+		LDX #0
+.idlp		LDA curDirHead+162,x
+		CMP #$a0
+		BNE .cont2
+		LDA #$20
+.cont2		STA (r0),y : INY
+		INX
+		CPX #5
+		BNE .idlp
+		LDA #$00			; put endofline
+		STA (r0),y : INY
+		+AddVW $1e, r0			; first line is shorter
+		JSR Get1stDirEntry
+		JMP .skip
+.fileloop	JSR GetNxtDirEntry
+.skip		+beqx .notend
+		JMP .endofdirectory
+.notend		+MoveW r5, curEntryByte+1
+		LDX #OFF_CFILE_TYPE
+		JSR curEntryByte
+		BPL .fileloop			; deleted file
+		TAX
+		AND #%00000011
+		STA r2L				; temporary filetype
+		TXA
+		AND #%01000000			; write proteced mark
+		STA r2H
+		JSR DoLeftSide
+
+		+LoadB r3L, 0
+		LDX #OFF_FNAME
+.filenamelp	JSR curEntryByte
+		CMP #$a0
+		BNE .cont3
+		LDA r3L
+		BNE .space
+		LDA #$22
+		STA r3L
+		!byte $2c
+.space		LDA #$20
+.cont3		STA (r0),y : INY
+		INX
+		CPX #OFF_FNAME+16
+		BNE .filenamelp
+
+		LDA #$20		; space
+		LDX r3L
+		BNE .space2
+		ORA #$02		; quote
+.space2		STA (r0),y : INY
+		LDA #$20
+		STA (r0),y : INY
+		STA (r0),y : INY
+		STA (r0),y : INY
+
+		LDX r2L
+		LDA filetypeTab1,x
+		STA (r0),y : INY
+		LDA filetypeTab2,x
+		STA (r0),y : INY
+		LDA filetypeTab3,x
+		STA (r0),y : INY
+		LDA #"<"
+		LDX r2H
+		BNE .wpon
+		LDA #$20
+.wpon		STA (r0),y : INY
+		LDA #$20
+		STA (r0),y : INY
+		LDA #0
+		STA (r0),y : INY
+		STY r1L
+		CLC
+		LDA r0L:ADC r1L:STA r0L		; move to next entry
+		LDA r0H:ADC #0 :STA r0H
+		JMP .fileloop
+
+.endofdirectory	; put link 0,0 at the end
+		JSR __CalcBlksFree
+		LDA r0L				; link to last
+		CLC
+		ADC #$17
+		STA (r0),y : INY
+		LDA r0H
+		ADC #0
+		STA (r0),y : INY
+		LDA r4L
+		STA (r0),y : INY		; blocks free
+		LDA r4H
+		STA (r0),y : INY
+		LDX #0
+.blksfre	LDA blocksFreeTxt,x
+		STA (r0),y : INY
+		INX
+		CPX #12
+		BNE .blksfre
+.endend		LDA #0
+		STA (r0),y : INY
+		STA (r0),y : INY
+		STA (r0),y : INY
+		RTS
+
+CheckDec	LDA r1H
+		CMP decTabH,x
+		BNE checkEnd
+		LDA r1L
+		CMP decTabL,x
+checkEnd	RTS
+
+DoLeftSide	; handles from start of line to name
+		LDY #0				; put link to next line
+		LDA r0L
+		+addv $20
+		STA (r0),y : INY
+		LDA r0H
+		ADC #0
+		STA (r0),y : INY
+		LDX #OFF_SIZE			; line number
+		JSR curEntryByte
+		STA r1L
+		STA (r0),y : INY
+		INX
+		JSR curEntryByte
+		STA r1H
+		STA (r0),y : INY
+		; put space if <10000
+		; put space if <1000
+		; put space if <100
+		; put space if <10
+		LDX #0
+.loop10		JSR CheckDec
+		BEQ .putspc10
+		BCS .skip10
+.putspc10	LDA #$20
+		STA (r0),y : INY
+		; need to fix link of current line also
+		TYA
+		PHA
+		LDY #0
+		LDA (r0),y:SEC:	SBC #1:STA(r0),y:INY
+		LDA (r0),y:SBC #0:STA (r0),y
+		PLA
+		TAY
+.skip10		INX
+		CPX #4
+		BNE .loop10
+
+PutQuote	LDA #$22			; quote
+		STA (r0),y : INY
+		RTS
+
+
+curEntryByte	; get byte indirectly by x
+		LDA $8000,x
+		RTS
+
+;------- data stuff
+decTabH		!byte >9999, >999, >99, >9
+decTabL		!byte <9999, <999, <99, <9
+
+filetypeTab1	!text "DSUPRC"
+filetypeTab2	!text "EESREB"
+filetypeTab3	!text "LQRGLM"
+
+blocksFreeTxt	!text "BLOCKS FREE.",0

@@ -37,6 +37,7 @@
 ;22.8.2001 - replaced LBA2CHS by shorter and faster routine
 ;23.8.2001 - added CUR_IMAGE/MAX_IMAGE fields
 ;26.8.2001 - rewritten SetNextFree
+;31.8.2001 - changed $80ff in GetNxtDirEntry to diskBlkBuf+$ff
 
 ;proposed new layout:
 ;128 sectors per track
@@ -210,7 +211,7 @@ _GetNxtDirEntry
 		LDX #0
 		LDY #0
 		+AddVW $20, r5
-		+CmpWI r5, $80ff
+		+CmpWI r5, diskBlkBuf+$ff
 		BCC GNDirEntry1
 		LDY #$ff
 		+MoveW diskBlkBuf, r1

@@ -1,0 +1,583 @@
+
+; remember to update this file after any disk structure change in GEOS driver code
+
+OFF_LBA_IMAGE	!byte 1,$78,$00,$00	; int32 - LBA offset to current image	9051
+OFF_LBA_SIZE	!byte $00,$3c,$00,$00	; int32 - total size of current image	9055
+
+CUR_IMAGE	!word 0			; int16 - number of current image	9059
+MAX_IMAGE	!word 0			; int16 - total number of images	905B
+
+	!if (useCHS=0) {
+SPT		!byte 26		; Sectors Per Track			905D
+SPC		!word 104		; Sectors Per Cylinder = HEAD*SPT	905E
+	}
+;---------------------------------------
+__CalcBlksFree
+		+LoadW r4, 0
+		LDY #OFF_TO_BAM			; last sector
+		LDA #OFF_TO_BAM+128		; till end
+		JSR CalcFreeBlks
+		+PushB r5H
+		+LoadB r5H, >dir2Head
+		LDY #0				; do first 16 tracks
+		TYA				; all
+		JSR CalcFreeBlks
+		+LoadB r5H, >dir3Head
+		LDY #0				; do track 17 only
+		LDA #16
+		JSR CalcFreeBlks
+		LDY #32				; do from track 19 till end
+		LDA #0
+		JSR CalcFreeBlks
+		; any other headers
+		INC r5H
+CFreeBlk0	LDY #0
+		TYA
+		JSR CalcFreeBlks
+		INC r5H
+		+CmpBI r5H, >(dir8Head+$100)
+		BNE CFreeBlk0
+		+PopB r5H
+		+LoadW r3, MAXBLK
+		RTS
+
+CalcFreeBlks	STA lengthBAM
+CBlksFre0	LDA (r5),y
+		BEQ CBlksFre3
+		PHA
+		AND #%00001111
+		BEQ CBlksFre2
+		TAX
+		LDA r4L
+		CLC
+		ADC CFB_tab,x
+		STA r4L
+		BCC CBlksFre2
+		INC r4H
+CBlksFre2	PLA
+		LSR
+		LSR
+		LSR
+		LSR
+		TAX
+		LDA r4L
+		CLC
+		ADC CFB_tab,x
+		STA r4L
+		BCC CBlksFre3
+		INC r4H
+CBlksFre3	INY
+lengthBAM	=*+1
+		CPY #0
+		BNE CBlksFre0
+		RTS
+
+CFB_tab		!byte $00, $01, $01, $02, $01, $02, $02, $03
+		!byte $01, $02, $02, $03, $02, $03, $03, $04
+;---------------------------------------
+;in: r3=T&S, out: r3 = r6 = newT&S, pass through AllocateBlock
+__SetNextFree	+MoveB r3L, r6L	; save track number
+		LDY r3L		; normalize track
+		BEQ SNF_1
+		DEY
+SNF_1		; track $12 -> BAMblock $1, offset $20, ignore sector
+		TYA
+		LSR:LSR:LSR:LSR
+		TAX		; X - BAMblock #
+		TYA
+		ASL:ASL:ASL:ASL
+		TAY		; Y - start offset
+
+SNF_Loop	LDA BAMHeaders, x
+		STA SNF_Search+2
+		CMP #>curDirHead
+		BEQ SNF_Half
+		LDA #0
+		BEQ SNF_Cont
+SNF_Half	STY r3L		; last sector
+		LDA #OFF_TO_BAM	; fix offset
+		+add r3L
+		TAY
+		LDA #128+OFF_TO_BAM	; fix ending
+SNF_Cont	STA zpBuff	; last offset
+
+SNF_Search	LDA curDirHead, y
+		BNE SNF_FoundByte
+		INY
+		CPY zpBuff
+		BNE SNF_Search
+		CPY #128+OFF_TO_BAM	; last sector?
+		BEQ SNF_DiskFull
+
+		INX
+		BNE SNF_Loop
+
+SNF_DiskFull	LDX #INSUFF_SPACE
+		RTS
+
+SNF_FoundByte	PHA
+		STX r3L		; save params
+		+CmpBI zpBuff, 128+OFF_TO_BAM	; last sector?
+		BNE SNF_Cont2
+		TYA
+		+subv OFF_TO_BAM		; fix offset
+		TAY
+SNF_Cont2	STY r3H
+		LDY #0
+		PLA
+SNF_Loop2	LSR
+		BCS SNF_FoundBit
+		INY		;:CPY #7 but saved 2 bytes here
+		CPY #7
+		BNE SNF_Loop2
+SNF_FoundBit	STY r7H		; store bitnum
+		; r3L - track, r3H - offset in BAM
+		; r3L+h-->track, r3h+bitnum (Y here)-->sector
+		; reconstruct here, copy to r6 and call _AllocateBlock
+		; check for directory case
+
+		ASL r3L:ASL r3L:ASL r3L:ASL r3L
+		LDA r3H
+		AND #%11110000
+		LSR:LSR:LSR:LSR
+		ORA r3L
+		STA r3L
+		INC r3L		; got track #
+		+CmpBI r3L, DIR_TRACK	; if finished on directory
+		BNE SNF_End
+		+CmpBI r6L, DIR_TRACK	; we must have started on that track...
+		BEQ SNF_End
+		INC r3L			; if not - start again from next track
+		+LoadB r3H, 0
+		JMP __SetNextFree
+
+SNF_End		LDA r3H
+		AND #%00001111
+		ASL:ASL:ASL
+		+add r7H
+		STA r3H
+		+MoveW r3, r6
+
+_AllocateBlock	JSR __FindBAMBit
+		BEQ AlloBAMErr
+AlloBlk0	LDA r8H
+		EOR #$ff
+		STY AlloBlkDH_1
+		STY AlloBlkDH_2
+AlloBlkDH_1	=*+2
+		AND curDirHead,x
+AlloBlkDH_2	=*+2
+		STA curDirHead,x
+		LDX #0
+		RTS
+AlloBAMErr	LDX #BAD_BAM
+		RTS
+
+;---------------------------------------
+;in: (r6) T&S, out: A={bitnum,0}, r7H(hnyb)=headerNum, Y=headerH, X=offset, r8H=bitnum
+__FindBAMBit
+		LDA r6L
+		TAX
+		DEX
+		TXA
+		PHA
+		ASL
+		ASL
+		ASL
+		ASL
+		STA r7H
+		LDA r6H
+		AND #%00000111
+		TAX
+		LDA FBBBitTab,x
+		STA r8H
+		LDA r6H
+		LSR
+		LSR
+		LSR
+		+add r7H
+		TAX
+		PLA
+		AND #%11110000
+		STA r7H
+		LSR
+		LSR
+		LSR
+		LSR
+		TAY
+		CPY #7				; is it the last header?
+		BNE FBB_cont
+		TXA
+		+addv OFF_TO_BAM
+		TAX
+FBB_cont	LDA BAMHeaders,y
+		STA FBBHeadH
+		TAY
+		TXA
+FBBHeadH	=*+2
+		LDA curDirHead,x
+		AND r8H
+		RTS
+
+FBBBitTab	!byte $01, $02, $04, $08
+		!byte $10, $20, $40, $80
+
+BAMHeaders	!byte >dir2Head, >dir3Head, >dir4Head, >dir5Head, >dir6Head
+		!byte >dir7Head, >dir8Head, >curDirHead
+;---------------------------------------
+__GetFreeDirBlk
+		PHP
+		SEI
+		+PushB r6L
+		+PushW r2
+		LDX r10L
+		INX
+		STX r6L
+		+LoadB r1L, DIR_TRACK
+		+LoadB r1H, 1
+GFDirBlk0	JSR _ReadBuff
+GFDirBlk1	+bnex GFDirBlk5
+		DEC r6L
+		BEQ GFDirBlk3
+GFDirBlk11	LDA diskBlkBuf
+		BNE GFDirBlk2
+		JSR _AddDirBlock
+		+bra GFDirBlk1
+GFDirBlk2	STA r1L
+		+MoveB diskBlkBuf+1, r1H
+		+bra GFDirBlk0
+GFDirBlk3	LDY #FRST_FILE_ENTRY
+		LDX #0
+GFDirBlk4	LDA diskBlkBuf,y
+		BEQ GFDirBlk5
+		TYA
+		+addv $20
+		TAY
+		BCC GFDirBlk4
+		+LoadB r6L, 1
+		LDX #FULL_DIRECTORY
+		INC r10L
+		LDY r10L
+		CPY #128-8
+		BCC GFDirBlk11
+GFDirBlk5	+PopW r2
+		+PopB r6L
+		PLP
+		RTS
+
+;---------------------------------------
+_AddDirBlock
+		+PushW r6
+		+LoadB r3L, DIR_TRACK
+		+LoadB r3H, 0
+		JSR __SetNextFree
+		+bnex ADirBlkEnd
+		+CmpBI r3L, DIR_TRACK
+		BEQ ADirBlk_1
+		LDX #FULL_DIRECTORY
+		BNE ADirBlkEnd
+ADirBlk_1	+MoveW r3, diskBlkBuf
+		JSR _WriteBuff
+		+bnex ADirBlkEnd
+		+MoveW r3, r1
+		JSR ClearAndWrite
+ADirBlkEnd	+PopW r6
+		RTS
+
+;---------------------------------------
+ClearAndWrite	LDA #0
+		TAY
+CAndWr0 	STA diskBlkBuf,y
+		INY
+		BNE CAndWr0
+		DEY
+		STY diskBlkBuf+1
+		JMP _WriteBuff
+
+;---------------------------------------
+SetDirHead	+LoadW r4, curDirHead
+		+LoadB r1L, DIR_TRACK
+		+LoadB r1H, 0
+		RTS
+
+GetDirHead	JSR SetDirHead
+		JSR __ReadBlock
+
+		+LoadB r1H, 126
+		+LoadB r4H, >dir2Head
+		JSR __ReadBlock
+		; any more headers
+		+LoadB r4H, >dir3Head
+GetDH_1		DEC r1H
+		JSR __ReadBlock
+		INC r4H
+		+CmpBI r4H, >(dir8Head+$100)
+		BNE GetDH_1
+		RTS
+
+;---------------------------------------
+PutDirHead	JSR SetDirHead
+		JSR __WriteBlock
+		+LoadB r1H, 126
+		+LoadB r4H, >dir2Head
+		JSR __WriteBlock
+		; any more headers
+		+LoadB r4H, >dir3Head
+PutDH_1		DEC r1H
+		JSR __WriteBlock
+		INC r4H
+		+CmpBI r4H, >(dir8Head+$100)
+		BNE PutDH_1
+		RTS
+
+;---------------------------------------
+_WriteBuff	+LoadW r4, diskBlkBuf
+		JMP __WriteBlock
+;---------------------------------------
+_ReadBuff	+LoadW r4, diskBlkBuf
+		JMP __ReadBlock
+;---------------------------------------
+Get1stDirEntry 
+		+LoadB r1L, 18
+		+LoadB r1H, 1
+		JSR _ReadBuff
+		+LoadW r5, diskBlkBuf+FRST_FILE_ENTRY
+		RTS
+;---------------------------------------
+		;>r5 - current entry, diskBlkBuf
+		;<r5 - current entry OR X=1 if reached end of DIR
+GetNxtDirEntry 
+		LDX #0
+		+AddVW $20, r5
+		+CmpWI r5, diskBlkBuf+$ff
+		BCC GNDirEntry1
+		+MoveW diskBlkBuf, r1
+		BNE GNDirEntry0
+		LDX #1
+		RTS
+GNDirEntry0	JSR _ReadBuff
+		+LoadW r5, diskBlkBuf+FRST_FILE_ENTRY
+GNDirEntry1	RTS
+;---------------------------------------
+_ReadLink
+__ReadBlock	JSR InitForHDD
+
+		LDA #IDE_READ
+		LDX #IDE_Command
+		JSR WriteIDERegister
+		JSR WaitIDEBusy		; possibly remove this
+
+Read_Lp0	LDX #IDE_Status		; wait for DRQ
+		JSR ReadIDERegister
+		AND #%00001000
+		BEQ Read_Lp0		; should never do more than once
+
+		LDY #0
+Read_Lp1	LDX #IDE_Data
+		JSR ReadIDERegister
+		STA (r4),Y
+		INY
+		BNE Read_Lp1
+
+HandleError	LDX #IDE_Status		; common for read/write
+		JSR ReadIDERegister
+		AND #%00000001		; get error status
+		BEQ Read_End		; no error
+		LDX #IDE_Error
+		JSR ReadIDERegister	; get error code
+		TAX
+		AND #%00010101		; AddressMarkNotFound|Abort|sector not found (wrong params)
+		BNE HErr_1
+		TXA
+		AND #%01000000		; irrecoverable R/W error
+		BNE HErr_2
+		LDX #$23		; other unknow error (will never happen)
+		!byte $2c
+HErr_1		LDX #$20
+		!byte $2c
+HErr_2		LDX #$23
+		!byte $2c
+Read_End	LDX #0
+		JMP DoneWithHDD
+
+;---------------------------------------
+;use another command for write-verify
+__VerWriteBlock
+__WriteBlock	JSR InitForHDD
+
+		LDA #IDE_WRITE
+		LDX #IDE_Command
+		JSR WriteIDERegister
+
+Write_Lp0	LDX #IDE_Status		; wait for DRQ
+		JSR ReadIDERegister
+		AND #%00001000
+		BEQ Write_Lp0
+
+		LDY #0
+Write_Lp1	LDX #IDE_Data
+		LDA (r4),Y
+		JSR WriteIDERegister
+		INY
+		BNE Write_Lp1
+
+		JSR WaitIDEBusy		; wait for command completion
+		JMP HandleError
+
+
+DoneWithHDD
+		+MoveW zpBuff, r1
+		RTS
+;---------------------------------------
+InitForHDD
+		+MoveW r1, zpBuff
+
+		;TS2LBA
+		;>(R1) T&S (tracks are starting from 1)
+		;>(OFF_LBA_IMAGE) PARTITION OFFSET (LBA)
+		;<(LBAWORK) LBA
+TS2LBA
+		DEC r1L
+		LSR r1L
+		BCC TS2LBA_cont
+		LDA #$80
+		ORA r1H
+		STA r1H
+TS2LBA_cont
+		LDA r1H
+		CLC
+		ADC OFF_LBA_IMAGE+0
+		STA lbawork+0
+		LDA r1L
+		ADC OFF_LBA_IMAGE+1
+		STA lbawork+1
+		LDA OFF_LBA_IMAGE+2
+		ADC #0
+		STA lbawork+2
+		LDA OFF_LBA_IMAGE+3
+		ADC #0
+		STA lbawork+3
+
+	!if (useCHS=0) {
+LBA2CHS		LDA #0
+		STA head:STA head+1
+		LDY #32
+SPC_Loop	ASL lbawork+0:ROL lbawork+1:ROL lbawork+2:ROL lbawork+3
+		ROL	     :ROL head+1
+		PHA
+		CMP SPC+0
+		LDA head+1:SBC SPC+1
+		BCC SPC_NextBit
+		PLA
+		SBC SPC+0
+		PHA
+		LDA head+1:SBC SPC+1:STA head+1
+		INC lbawork+0
+SPC_NextBit	PLA
+		DEY
+		BNE SPC_Loop
+		STA head+0
+
+		; HEAD:=HEAD/SPT, remainder --> sector
+		LDA #0
+		STA sector
+		LDY #16
+SPT_Loop	ASL head+0:ROL head+1
+		ROL
+		CMP SPT
+		BCC SPT_NextBit
+		SBC SPT
+		INC head+0
+SPT_NextBit	DEY
+		BNE SPT_Loop
+		STA sector
+		;SECTOR:=SECTOR+1
+		INC sector
+	}
+;!!!		RTS
+;---------------------------------------
+SetHDDParams
+
+; set ports in proper mode
+		LDX #$ff
+		STX cia3pa		; port A - output, inactive
+		STX cia3ddra
+		STX cia3pa
+		INX
+		STX cia3ddrb		; port B - input
+; wait for device ready
+RDYLoop		LDX #IDE_Status
+		JSR ReadIDERegister
+		AND #%01000000
+		BEQ RDYLoop
+; load parameters
+		LDA #1
+		LDX #IDE_SectorCount
+		JSR WriteIDERegister
+	!if (useCHS=0) {
+		LDA sector
+		LDX #IDE_Sector
+		JSR WriteIDERegister
+		LDA cyl
+		LDX #IDE_CylinderL
+		JSR WriteIDERegister
+		LDA cyl+1
+		LDX #IDE_CylinderH
+		JSR WriteIDERegister
+
+		LDA head
+		AND #%00001111
+		ORA #%10100000		; always master, use CHS
+		LDX #IDE_Head
+	} else {
+		LDA lbawork+0
+		LDX #IDE_Sector
+		JSR WriteIDERegister
+		LDA lbawork+1
+		LDX #IDE_CylinderL
+		JSR WriteIDERegister
+		LDA lbawork+2
+		LDX #IDE_CylinderH
+		JSR WriteIDERegister
+		LDA lbawork+3
+		AND #%00001111
+		ORA #%11100000		; always master, use LBA
+		LDX #IDE_Head
+	}
+;!!! 		JSR WriteIDERegister
+;---------------------------------------
+WriteIDERegister			; X - regnumber, A - value
+		PHA
+		LDA IDE_RegTable,X
+		STA cia3pa
+		AND #IDE_wrmask
+		STA cia3pa
+		LDA #$ff		; port B as output
+		STA cia3ddrb
+		PLA
+		STA cia3pb
+		LDA IDE_RegTable,X
+		STA cia3pa
+		LDA #0			; port B as input
+		STA cia3ddrb
+		RTS
+;---------------------------------------
+ReadIDERegister				; X - regnumber, A,X - value
+		LDA IDE_RegTable,X
+		STA cia3pa
+		PHA
+		AND #IDE_rdmask
+		STA cia3pa
+		LDX cia3pb
+		PLA
+		STA cia3pa
+		TXA
+		RTS
+;---------------------------------------
+WaitIDEBusy	LDX #IDE_Status
+		JSR ReadIDERegister
+		AND #%10000000
+		BNE WaitIDEBusy
+		RTS
+;---------------------------------------
+IDE_RegTable	+IDE_RegisterTable

@@ -1,0 +1,365 @@
+;
+; CIA/IDE BASIC Load/Save support (wedge)
+; Maciej 'YTM/Elysium' Witkowiak <ytm@elysium.pl>
+;
+; 31.08.2001
+;
+; ERROR:
+; - blocks calculating is wrong
+; - errors are not reported
+; TODO:
+; - show messages
+; - Open ($ffc0) intercept to S:, N: and CD: commands
+; - parser to get PPPPP:NNNNNNNNNN info and set partition
+; - honour ,T,M T={s,u,p} and strip it from name
+; - prepare to run on add-on ROM, or from under ROM
+; - C128 version
+; - disk params setup (in lowlevel.tas)
+
+!set	useCHS		= 0
+!set	myDevNum	= 7
+!set	MAXBLK		= 120*128-128
+
+!to	"hddwedge.bin"
+
+zpBuff			= $94
+lbawork                 = $a3			;int32, zpage
+cyl			= lbawork
+head			= lbawork+4
+sector			= head+2
+r0			= $c3			; safe - load/save address
+r0L			= $c3
+r0H			= $c4
+r1			= $9b
+r1L			= $9b
+r1H			= $9c
+r2			= $fc
+r2L			= $fc
+r2H			= $fd
+r3			= $fe
+r3L			= $fe
+r3H			= $ff
+r4			= $aa
+r4L			= $aa
+r4H			= $ab
+r5			= $b0
+r5L			= $b0
+r5H			= $b1
+r6			= $f8
+r6L			= $f8
+r6H			= $f9
+r7			= $fa
+r7L			= $fa
+r7H			= $fb
+r8			= $9e
+r8L			= $9e
+r8H			= $9f
+r9			= $c1	; save start
+r9L			= $c1
+r9H			= $c2
+r10			= $ae	; save end
+r10L			= $ae
+r10H			= $af
+
+CPU_DATA		= $01
+
+diskBlkBuf		= $8000
+curDirHead		= $8100
+dir2Head		= $8200
+dir3Head		= $8300
+dir4Head		= $8400
+dir5Head		= $8500
+dir6Head		= $8600
+dir7Head		= $8700
+dir8Head		= $8800
+
+cia1base		= $dc00
+
+!source "inc/const.inc"
+!source "inc/geosmac.acme.inc"
+!source "inc/ide3.inc"
+
+		;>r0 - loadaddress or NULL (if NULL - take loadadress from file)
+		;>r1 - T&S
+		;<X - error, r0 - endadress
+
+		*=$c000
+
+		!zone Install
+		+MoveW $0330, oldLoad+1
+		LDA #<Load
+		LDX #>Load
+		STA $0330
+		STX $0331
+.endload	+MoveW $0332, oldSave+1
+		LDA #<Save
+		LDX #>Save
+		STA $0332
+		STX $0333
+		RTS
+
+		!zone Load
+Load		PHA
+		JSR CheckDevice
+		BEQ newLoad
+		PLA
+oldLoad		JMP $f4ac
+
+newLoad		+PopB $93			; LOAD/VERIFY
+		SEI
+		+LoadB $90, 0
+;		STX r0L				; store params - $c3/c4 - should be there
+;		STY r0H				; stored by Kernal before vector jump
+		LDY $b7
+		BEQ .fileNotFound		; 0-length name
+		JSR $f5af			;!!! C64Kernal SEARCHING FOR
+		JSR FindFile
+		+bnex .fileNotFound
+		JSR $f5d2			;!!! C64Kernal LOADING
+		LDA $b9				; 0- load by XY
+		BEQ .doRead
+		+LoadW r0, 0
+.doRead		LDY #0
+		LDA ($bb),y
+		CMP #"$"
+		BNE .loadfile
+		JSR ReadDirectory
+		JMP .endok
+.loadfile	PHP
+		SEI
+		+PushB CPU_DATA
+		JSR ReadFile
+		+PopB CPU_DATA
+		PLP
+.endok		CLC
+		+LoadB $90, 64			; flag OK, EOF
+		LDX r0L				; return endadress
+		LDY r0H
+		RTS
+.fileNotFound	SEC
+		RTS
+
+		!zone CheckDevice
+CheckDevice	+CmpBI $ba, myDevNum
+		RTS
+
+		!zone FindFile
+FindFile	;!!! find file entry with name globbing, extract partition # PPP:NNNNNNNN, fix $bb
+		; return T&S in r1 or X!=0
+		JSR Get1stDirEntry
+.loop		JSR CompareFileName
+		BEQ .found
+		JSR GetNxtDirEntry
+		+beqx .loop
+		+LoadW r1, 0
+		RTS
+.found		LDY #OFF_DE_TR_SC
+		LDA (r5),y
+		STA r1L
+		INY
+		LDA (r5),y
+		STA r1H
+		LDX #0
+		RTS
+
+		!zone CompareFileName
+CompareFileName	; compare (r5) to $bb to $b7 with * and ? respecting
+		+AddVW OFF_FNAME, r5	; fix pointer
+		;!!! get partition number: "ppppp:name", fix $bb, $b7
+		LDY #0
+		LDA ($bb),y
+		CMP #"$"		; directory always present
+		BEQ .found
+.fnamelp	LDA ($bb),y
+		CMP #"*"
+		BEQ .found
+		CMP #"?"
+		BEQ .skipchar
+		CMP (r5),y
+		BNE .notfound
+.skipchar	INY
+		CPY $b7
+		BNE .fnamelp
+		LDA (r5),y
+		CMP #$a0
+		BNE .notfound
+.found		LDX #0
+		!byte $2c
+.notfound	LDX #1
+		+SubVW OFF_FNAME, r5
+		TXA
+		RTS
+
+		!zone Save
+Save		PHA
+		JSR CheckDevice
+		BEQ newSave
+		PLA
+oldSave		JMP $f4ac
+
+newSave		PLA
+;		STX r10L		; this is set by Kernal
+;		STY r10H
+;		TAX
+;		LDA $00,x
+;		STA r9L
+;		LDA $01,x
+;		STA r9H
+		; r9 - start, r10 - end
+		; is filename ok?
+		SEI
+		+PushB CPU_DATA
+		+LoadB CPU_DATA, $35
+		LDY $b7
+		BEQ .errName
+		LDY #0
+.nameLp		LDA ($bb),y
+		CMP #"*"
+		BEQ .errName
+		CMP #"?"
+		BEQ .errName
+		INY
+		CPY $b7
+		BNE .nameLp
+		BEQ .contname
+.errName	JMP .ErrorName
+		; does such file exist? (Find must fail), find sets Partition and fixes name
+.contname	JSR FindFile
+		+bnex .contname2
+		; is there enough space?
+		JMP .fileExists
+.contname2	JSR GetDirHead
+		JSR __CalcBlksFree ; (r4 - free)
+		LDA r4H
+		BNE .enoughSpace
+		; calculate length in r0
+		SEC
+		LDA r10L:SBC r9L:STA r0L
+		LDA r10H:SBC r9H:STA r0H
+		INC r0H
+		LDA r4L
+		CMP r0H
+		BCC .enoughSpace
+		JMP .noSpaceLeft
+.enoughSpace
+		; allocate 1st data sector (got back in r3)
+		+LoadB r3L, 1
+		+LoadB r3H, 0
+		JSR __SetNextFree
+		+PushW r10
+		+PushW r3
+		+LoadB r10L, 0		; number of blocks to skip
+		JSR __GetFreeDirBlk	; r1 - t&s, Y - offset
+		+PopW r3
+		+PopW r10
+		+beqx .gotfileentry
+		JMP .toomanyfiles
+		; clear entry
+.gotfileentry	TYA
+		PHA
+		LDX #0
+		TXA
+.clearEntry	STA diskBlkBuf,y
+		INY
+		INX
+		CPX #$1e
+		BNE .clearEntry
+		PLA
+		TAY
+		; put data into direntry
+		LDA #$83		; PRG
+		STA diskBlkBuf, y:INY
+		LDA r3L
+		STA diskBlkBuf, y:INY
+		LDA r3H
+		STA diskBlkBuf, y:INY
+		TYA			; move Y->X
+		TAX
+		LDY #0
+.namelp		LDA ($bb),y
+		STA diskBlkBuf, x:INX
+		INY
+		CPY $b7
+		BNE .namelp
+		LDA #$a0
+.namelp2	CPY #16
+		BEQ .nameend
+		STA diskBlkBuf, x:INX
+		INY
+		BNE .namelp2
+.nameend	TXA
+		+addv 9
+		TAX
+		SEC			; calculate length in r0
+		LDA r10L:SBC r9L:STA r0L
+		LDA r10H:SBC r9H:STA r0H
+
+		LDA r0H			; put size
+		STA diskBlkBuf, x
+		INC diskBlkBuf, x
+		INX
+		LDA #0
+		STA diskBlkBuf, x
+		JSR _WriteBuff		; enable save
+
+		; allocate next (return t&s or 0,[lastbyte])
+.sectorloop	+MoveW r3, r1
+		JSR AllocateNext
+		; put t&s, loadaddr, data into first sector
+		+MoveW r3, diskBlkBuf
+		; in loop: allocate next, write data, write sector
+		+LoadB CPU_DATA, $30
+		LDY #0
+.dataloop	LDA (r9),y
+		STA diskBlkBuf+2,y
+		INY
+		CPY #$fe
+		BNE .dataloop
+		+LoadB CPU_DATA, KRNL_IO_IN
+		JSR _WriteBuff		; enable save
+
+		+AddVW $fe, r9
+		LDA r3L			; still something left
+		BNE .sectorloop
+		; put dir head
+		JSR PutDirHead		; enable save
+		+PopB CPU_DATA
+		CLI
+		CLC
+		RTS
+.toomanyfiles
+.noSpaceLeft
+.fileExists
+.ErrorName	+PopB CPU_DATA
+		CLI
+		SEC
+		RTS
+
+		!zone AllocateNext
+AllocateNext	; return in r3 t&s of next sector OR 0,[lastbyte]
+		; r0 must keep length
+		LDA r0H
+		BNE .doallocate
+		LDA r0L
+		CMP #$ff
+		BEQ .doallocate
+		CMP #$fe
+		BEQ .doallocate
+		+addv 2
+		STA r3H
+		+LoadB r3L, 0
+		RTS
+.doallocate	JSR __SetNextFree
+		SEC
+		LDA r0L:SBC #$fe:STA r0L
+		LDA r0H:SBC #0  :STA r0H
+		RTS
+
+;-------- BASIC directory contructor (r0,r1,r2,r3,r4,r5)
+!source "directory.tas"
+
+;-------- t&s loader code (r0,r1,r4)
+!source "readfile.tas"
+
+;-------- low level code - update after any change in HDD driver code
+!source "lowlevel.tas"
