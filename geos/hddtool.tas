@@ -11,6 +11,7 @@
 ;08.08.01 - maximized bastard
 
 ;15-23.08.01 - hddtool based on inithdd
+;BUG: when formatting partition # >256 only lower byte will be shown
 ;LOOKOUT: non-settable constants in driver, search for <---,!!!
 
 ;constant value
