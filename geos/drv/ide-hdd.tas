@@ -38,30 +38,37 @@
 ;23.8.2001 - added CUR_IMAGE/MAX_IMAGE fields
 ;26.8.2001 - rewritten SetNextFree
 ;31.8.2001 - changed $80ff in GetNxtDirEntry to diskBlkBuf+$ff
+;23.7.2002 - rewritten to use 255x256, one BAM at a time in memory, counter of free blocks
 
-;proposed new layout:
-;128 sectors per track
-;BAM takes $04-$84 from dirhead1 (last tracks) and full dirhead2 (with link bytes)
-; (for start - it's too less, check driver length and find place for at least 2 more dirheads)
-; ($9c80, $9b80, $9a80, $9980, $9880...) - checkout BAMHeaders table and (HDD_DIR_DATA-1) value
-;1st track is dirtrack
-;$00-00	- dirhead1 (link to names1)
-;$00-01 - names01  (0-8)
-;$00-xx - namesxx
-;$00-yy - namesyy  (last)
-;$00-   - dirhead8
-;$00-7d - dirhead3
-;$00-7e - dirhead2 (no link - pure data)
-;$00-7f - border-dir
-;$01-00 - data0
-;...
-;$77-7f - last sector
+; layout: maximum we can get with 16 bits for T&S.
+; ~16MB: 255 tracks x 256 sectors, track 0 does not exist, directory is on track 18
+; size of partition is $FE0000 = 65204 sectors
+; note that with 8 bit interface this means that 32MB are used so we cannot use smaller disks
+; than that
+;
+; $01-$00 - first disk sector
+; ...
+; $12-$00 - dirhead1 (link to names01), contains disk name and counter of free sectors (offs=4)
+; $12-$01 - first names sector  (0-7)
+; ...
+; $12-$de - last names sector (1768-1775)
+; $12-$df - border-dir sector
+; $12-$e0 - first BAM (track 1-9)
+; ...
+; $12-$ff - last BAM  (tracks 249-255), last 32 bytes unused
+; ...
+; $ff-$ff - last disk sector
 
+; values below exported to config.inc
 ;!set machine		= 128			; 64 for C64, 128 for C128
 ;!set useCHS		= 0			; 0 - true, !=0 - false
-
-!set MAXBLK		= 120*128-128
-!set HDD_DIR_DATA	= 1			;first sector with file data
+;!set useIDE64		= 1			; 0 - true, !=0 - false
+;
+;!set HDD_MAXBLK_FREE	= 254*256-256		;total number of free blocks
+;!set HDD_DIR_TRACK	= 18			;to be compatible with artificial 1541
+;!set HDD_DIR_DATA	= 1			;first sector with file data
+;!set HDD_DIR_BORDER	= $df			;border directory sector
+;!set HDD_DIR_BAM1ST	= $e0			;first sector of BAM-data (SNF requires lastBAM+1=0)
 
 zpBuff			= $80
 lbawork                 = $82			;int32, zpage
@@ -112,7 +119,7 @@ GetBorder		JMP _GetBorder			;9036
 AddDirBlock		JMP _AddDirBlock		;9039
 ReadBuff		JMP _ReadBuff			;903c
 WriteBuff		JMP _WriteBuff			;903f
-			JMP __I9042			;9042 ;use this for IDE commands
+			JMP __I9042			;9042 ;use this for IDE commands?
 			JMP GetDOSError 		;9045
 AllocateBlock		JMP _AllocateBlock		;9048
 ReadLink		JMP _ReadLink			;904b
@@ -123,14 +130,16 @@ ReadLink		JMP _ReadLink			;904b
 SIGNATURE	!text "HDD"		; 904E - for driver recognition
 
 OFF_LBA_IMAGE	!byte 104,$00,$00,$00	; int32 - LBA offset to current image	9051
-OFF_LBA_SIZE	!byte $00,$3c,$00,$00	; int32 - total size of current image	9055
+OFF_LBA_SIZE	!byte $00,$fe,$00,$00	; int32 - total size of current image	9055
 
 CUR_IMAGE	!word 0			; int16 - number of current image	9059
 MAX_IMAGE	!word 0			; int16 - total number of images	905B
 
+MASTERSLAVE	!byte 0			; master/slave: $00=master,$10=slave	905D
+
 	!if (useCHS=0) {
-SPT		!byte 26		; Sectors Per Track			905D
-SPC		!word 104		; Sectors Per Cylinder = HEAD*SPT	905E
+SPT		!byte 26		; Sectors Per Track			905E
+SPC		!word 104		; Sectors Per Cylinder = HEAD*SPT	905F
 	}
 ;---------------------------------------
 _ReadLink
@@ -200,7 +209,7 @@ Write_Lp1	LDX #IDE_Data
 
 ;---------------------------------------
 _Get1stDirEntry 
-		+LoadB r1L, DIR_TRACK
+		+LoadB r1L, HDD_DIR_TRACK
 		+LoadB r1H, HDD_DIR_DATA
 		JSR ReadBuff
 		+LoadW r5, diskBlkBuf+FRST_FILE_ENTRY
@@ -229,8 +238,8 @@ GNDirEntry0	JSR ReadBuff
 GNDirEntry1	RTS
 ;---------------------------------------
 _GetBorder
-		+LoadB r1L, DIR_TRACK
-		+LoadB r1H, 127			; last sector on dir track
+		+LoadB r1L, HDD_DIR_TRACK
+		+LoadB r1H, HDD_DIR_BORDER
 		LDY #0
 		LDX #0
 		RTS
@@ -245,162 +254,85 @@ CAndWr0 	STA diskBlkBuf,y
 		JMP WriteBuff
 ;---------------------------------------
 __CalcBlksFree
-		+LoadW r4, 0
-		LDY #OFF_TO_BAM			; last sector
-		LDA #OFF_TO_BAM+128		; till end
-		JSR CalcFreeBlks
-		+PushB r5H
-		+LoadB r5H, >dir2Head
-		LDY #0				; do first 16 tracks
-		TYA				; all
-		JSR CalcFreeBlks
-		+LoadB r5H, >dir3Head
-		LDY #0				; do track 17 only
-		LDA #16
-		JSR CalcFreeBlks
-		LDY #32				; do from track 19 till end
-		LDA #0
-		JSR CalcFreeBlks
-		; any other headers
-		INC r5H
-CFreeBlk0	LDY #0
-		TYA
-		JSR CalcFreeBlks
-		INC r5H
-		+CmpBI r5H, >(dir8Head+$100)
-		BNE CFreeBlk0
-		+PopB r5H
-		+LoadW r3, MAXBLK
+		+MoveW curDirHead+OFF_TO_BAM, r4	; copy from dirHeader+4
+		+LoadW r3, HDD_MAXBLK_FREE		; total number of blocks
 		RTS
 
-CalcFreeBlks	STA lengthBAM
-CBlksFre0	LDA (r5),y
-		BEQ CBlksFre3
-		PHA
-		AND #%00001111
-		BEQ CBlksFre2
-		TAX
-		LDA r4L
-		CLC
-		ADC CFB_tab,x
-		STA r4L
-		BCC CBlksFre2
-		INC r4H
-CBlksFre2	PLA
-		LSR
-		LSR
-		LSR
-		LSR
-		TAX
-		LDA r4L
-		CLC
-		ADC CFB_tab,x
-		STA r4L
-		BCC CBlksFre3
-		INC r4H
-CBlksFre3	INY
-lengthBAM	=*+1
-		CPY #0
-		BNE CBlksFre0
-		RTS
-
-CFB_tab		!byte $00, $01, $01, $02, $01, $02, $02, $03
-		!byte $01, $02, $02, $03, $02, $03, $03, $04
 ;---------------------------------------
 ;in: r3=T&S, out: r3 = r6 = newT&S, pass through AllocateBlock
-__SetNextFree	+MoveB r3L, r6L	; save track number
-		LDY r3L		; normalize track
-		BEQ SNF_1
-		DEY
-SNF_1		; track $12 -> BAMblock $1, offset $20, ignore sector
-		TYA
-		LSR:LSR:LSR:LSR
-		TAX		; X - BAMblock #
-		TYA
-		ASL:ASL:ASL:ASL
-		TAY		; Y - start offset
+__SetNextFree	+MoveW r3, r6	; copy
+		JSR FindBAMBit	; let it calculate everything now..., X=offset, memSectorBAM updated
+		BNE AlloBlk0	; was free - end of journey
 
-SNF_Loop	LDA BAMHeaders, x
-		STA SNF_Search+2
-		CMP #>curDirHead
-		BEQ SNF_Half
-		LDA #0
-		BEQ SNF_Cont
-SNF_Half	STY r3L		; last sector
-		LDA #OFF_TO_BAM	; fix offset
-		+add r3L
-		TAY
-		LDA #128+OFF_TO_BAM	; fix ending
-SNF_Cont	STA zpBuff	; last offset
-
-SNF_Search	LDA curDirHead, y
+SNF_Search	LDA dir2Head, x
 		BNE SNF_FoundByte
-		INY
-		CPY zpBuff
-		BNE SNF_Search
-		CPY #128+OFF_TO_BAM	; last sector?
-		BEQ SNF_DiskFull
-
 		INX
-		BNE SNF_Loop
+		BEQ SNF_NextBAM
+		CPX #$e0		; is it $ffe0 - last valid BAM byte?
+		BNE SNF_Search
+		LDA memSectorBAM
+		CMP #$ff
+		BEQ SNF_DiskFull
+		BNE SNF_Search
+
+SNF_NextBAM	LDY memSectorBAM	; end of BAM sector, try next one
+		INY
+		BEQ SNF_DiskFull	; can't go to next one
+		STY memSectorBAM
+		TYA
+		JSR CheckBAMSector	; load next sector
+		LDX #0
+		BEQ SNF_Search
 
 SNF_DiskFull	LDX #INSUFF_SPACE
 		RTS
 
-SNF_FoundByte	PHA
-		STX r3L		; save params
-		+CmpBI zpBuff, 128+OFF_TO_BAM	; last sector?
-		BNE SNF_Cont2
-		TYA
-		+subv OFF_TO_BAM		; fix offset
-		TAY
-SNF_Cont2	STY r3H
-		LDY #0
-		PLA
+SNF_FoundByte	LDY #0			; find bit number
 SNF_Loop2	LSR
 		BCS SNF_FoundBit
-		INY		;:CPY #7 but saved 2 bytes here
+		INY
 		CPY #7
 		BNE SNF_Loop2
-SNF_FoundBit	STY r7H		; store bitnum
-		; r3L - track, r3H - offset in BAM
-		; r3L+h-->track, r3h+bitnum (Y here)-->sector
-		; reconstruct here, copy to r6 and call _AllocateBlock
-		; check for directory case
 
-		ASL r3L:ASL r3L:ASL r3L:ASL r3L
-		LDA r3H
-		AND #%11110000
-		LSR:LSR:LSR:LSR
-		ORA r3L
+		;; put it together:
+		;; memSectorBAM & 0x1f - highest 5 bits
+		;; X - offset - middle 8 bits
+		;; Y - bitnum - lowest 3 bits
+SNF_FoundBit	LDA memSectorBAM
+		+subv HDD_DIR_BAM1ST
 		STA r3L
-		INC r3L		; got track #
-		+CmpBI r3L, DIR_TRACK	; if finished on directory
+		STX r3H		; r3 - highest 13 bits/8
+		STY r7H		; r7H - lowset 3 bits
+		ASL r3H:ROL r3L
+		ASL r3H:ROL r3L
+		ASL r3H:ROL r3L	; move 3 bits left
+		LDA r3H
+		ORA r7H
+		STA r3H		; collect lowest 3 bits
+		INC r3L		; correct track #
+
+		+CmpBI r3L, HDD_DIR_TRACK	; if finished on directory track
 		BNE SNF_End
-		+CmpBI r6L, DIR_TRACK	; we must have started on that track...
+		+CmpBI r6L, HDD_DIR_TRACK	; we must have started on that track...
 		BEQ SNF_End
-		INC r3L			; if not - start again from next track
+		INC r3L				; if not - start again from next track
 		+LoadB r3H, 0
 		JMP __SetNextFree
 
-SNF_End		LDA r3H
-		AND #%00001111
-		ASL:ASL:ASL
-		+add r7H
-		STA r3H
-		+MoveW r3, r6
+SNF_End		+MoveW r3, r6
 
-_AllocateBlock	JSR FindBAMBit
+;---------------------------------------
+_AllocateBlock	
+		JSR FindBAMBit
 		BEQ AlloBAMErr
 AlloBlk0	LDA r8H
 		EOR #$ff
-		STY AlloBlkDH_1
-		STY AlloBlkDH_2
-AlloBlkDH_1	=*+2
-		AND curDirHead,x
-AlloBlkDH_2	=*+2
-		STA curDirHead,x
-		LDX #0
+		AND dir2Head,x
+		STA dir2Head,x
+		+CmpBI r6L, HDD_DIR_TRACK
+		BEQ AlloBlkEnd
+		+SubVW 1,curDirHead+OFF_TO_BAM	; update blocksfree counter
+AlloBlkEnd	LDX #0
 		RTS
 AlloBAMErr	LDX #BAD_BAM
 		RTS
@@ -409,68 +341,66 @@ AlloBAMErr	LDX #BAD_BAM
 __FreeBlock
 		JSR FindBAMBit
 		BNE AlloBAMErr
-		STY FreeBlkDH_1
-		STY FreeBlkDH_2
 		LDA r8H
-FreeBlkDH_1	=*+2
-		EOR curDirHead,x
-FreeBlkDH_2	=*+2
-		STA curDirHead,x
-		LDX #0
+		EOR dir2Head,x
+		STA dir2Head,x
+		+CmpBI r6L, HDD_DIR_TRACK
+		BEQ FreeBlkEnd
+		+AddVW 1,curDirHead+OFF_TO_BAM	; update blockfree counter
+FreeBlkEnd	LDX #0
 		RTS
 
 ;---------------------------------------
-;in: (r6) T&S, out: A={bitnum,0}, r7H(hnyb)=headerNum, Y=headerH, X=offset, r8H=bitnum
+;in: (r6) T&S, out: A={bitnum,0}, X=offset, r8H=bitval
 __FindBAMBit
-		LDA r6L
-		TAX
-		DEX
-		TXA
-		PHA
-		ASL
-		ASL
-		ASL
-		ASL
-		STA r7H
 		LDA r6H
+		STA r7H				;r7H=lobyte
 		AND #%00000111
-		TAX
-		LDA FBBBitTab,x
-		STA r8H
-		LDA r6H
-		LSR
-		LSR
-		LSR
-		+add r7H
-		TAX
-		PLA
-		AND #%11110000
-		STA r7H
-		LSR
-		LSR
-		LSR
-		LSR
-		TAY
-		CPY #7				; is it the last header?
-		BNE FBB_cont
-		TXA
-		+addv OFF_TO_BAM
-		TAX
-FBB_cont	LDA BAMHeaders,y
-		STA FBBHeadH
-		TAY
-		TXA
-FBBHeadH	=*+2
-		LDA curDirHead,x
+		TAY				; bitnum to Y
+		LDA FBBBitTab,y
+		STA r8H				; now r8H has bitval
+
+		LDX r6L				; normalize track (Hbyte)
+		DEX
+		TXA				; A=hibyte, r7H=lobyte
+		LSR:ROR r7H
+		LSR:ROR r7H
+		LSR:ROR r7H			; divide by 8, now A has headerNum, r7H - offset
+
+		+addv HDD_DIR_BAM1ST		; calculate BAM sector on dirtrack
+		JSR CheckBAMSector
+
+FBB_Cont	LDX r7H				; finally...
+		LDA dir2Head,x
 		AND r8H
 		RTS
 
-FBBBitTab	!byte $01, $02, $04, $08
-		!byte $10, $20, $40, $80
+FBBBitTab	!byte $01, $02, $04, $08, $10, $20, $40, $80
 
-BAMHeaders	!byte >dir2Head, >dir3Head, >dir4Head, >dir5Head, >dir6Head
-		!byte >dir7Head, >dir8Head, >curDirHead
-
+;---------------------------------------
+;A - sector number of one BAM (or 0)
+CheckBAMSector	CMP memSectorBAM		; do we have it in memory?
+		BEQ CBS_End
+		TAX				; no...
+		+PushW r1
+		+PushW r4
+		TXA
+		PHA
+		JSR InitForIO			; ???!!!can be harmed?
+		+LoadW r4, dir2Head
+		+LoadB r1L, HDD_DIR_TRACK
+		LDA memSectorBAM
+		BEQ CBS_NoWrite			; 0 - no valid BAM in memory
+		STA r1H
+		JSR WriteBlock			; save current BAM block
+CBS_NoWrite	+PopB memSectorBAM
+		BEQ CBS_NoRead			; can't happen now, might be useful later
+		STA r1H
+		JSR ReadBlock			; load new one
+CBS_NoRead	JSR DoneWithIO			; ???!!!can be harmed?
+		+PopW r4
+		+PopW r1
+CBS_End		RTS
 ;---------------------------------------
 __GetFreeDirBlk
 		PHP
@@ -480,7 +410,7 @@ __GetFreeDirBlk
 		LDX r10L
 		INX
 		STX r6L
-		+LoadB r1L, DIR_TRACK
+		+LoadB r1L, HDD_DIR_TRACK
 		+LoadB r1H, HDD_DIR_DATA
 GFDirBlk0	JSR ReadBuff
 GFDirBlk1	+bnex GFDirBlk5
@@ -515,11 +445,11 @@ GFDirBlk5	+PopW r2
 ;---------------------------------------
 _AddDirBlock
 		+PushW r6
-		+LoadB r3L, DIR_TRACK
+		+LoadB r3L, HDD_DIR_TRACK
 		+LoadB r3H, 0
 		JSR SetNextFree
 		+bnex ADirBlkEnd
-		+CmpBI r3L, DIR_TRACK
+		+CmpBI r3L, HDD_DIR_TRACK
 		BEQ ADirBlk_1
 		LDX #FULL_DIRECTORY
 		BNE ADirBlkEnd
@@ -617,31 +547,23 @@ __OpenDisk	JSR GetDirHead
 __PutDirHead	JSR SetDirHead
 		JSR InitForIO
 		JSR WriteBlock
-		+LoadB r1H, 126
+		LDA memSectorBAM		; is there BAM sector in memory?
+		BEQ PutDH_End
+		STA r1H
 		+LoadB r4H, >dir2Head
-		JSR WriteBlock
-		; any more headers
-		+LoadB r4H, >dir3Head
-PutDH_1		DEC r1H
-		JSR WriteBlock
-		INC r4H
-		+CmpBI r4H, >(dir8Head+$100)
-		BNE PutDH_1
-		JMP DoneWithIO
+		JSR WriteBlock			; save it too
+PutDH_End	JMP DoneWithIO
 ;---------------------------------------
 __GetDirHead	JSR SetDirHead
 		JSR InitForIO
 		JSR ReadBlock
-		+LoadB r1H, 126
+;		+LoadB memSectorBAM, $00	; no BAM sector loaded
+;--------debug
+		+LoadB memSectorBAM, HDD_DIR_BAM1ST
+		STA r1H
 		+LoadB r4H, >dir2Head
-		JSR ReadBlock
-		; any more headers
-		+LoadB r4H, >dir3Head
-GetDH_1		DEC r1H
-		JSR ReadBlock
-		INC r4H
-		+CmpBI r4H, >(dir8Head+$100)
-		BNE GetDH_1
+		JSR ReadBlock			;get BAM (debug)
+;--------debug
 		JMP DoneWithIO
 ;---------------------------------------
 _WriteBuff	JSR SetBufVector
@@ -657,7 +579,7 @@ __GetBlock	JSR InitForIO
 SetBufVector	+LoadW r4, diskBlkBuf
 		RTS
 ;---------------------------------------
-SetDirHead	+LoadB r1L, DIR_TRACK
+SetDirHead	+LoadB r1L, HDD_DIR_TRACK
 		+LoadB r1H, 0
 		STA r4L
 		+LoadB r4H, (>curDirHead)
@@ -722,13 +644,7 @@ InitForHDD
 		;>(OFF_LBA_IMAGE) PARTITION OFFSET (LBA)
 		;<(LBAWORK) LBA
 TS2LBA
-		DEC r1L
-		LSR r1L
-		BCC TS2LBA_cont
-		LDA #$80
-		ORA r1H
-		STA r1H
-TS2LBA_cont
+		DEC r1L				; normalize track
 		LDA r1H
 		CLC
 		ADC OFF_LBA_IMAGE+0
@@ -812,7 +728,8 @@ RDYLoop		LDX #IDE_Status
 
 		LDA head
 		AND #%00001111
-		ORA #%10100000		; always master, use CHS
+		ORA MASTERSLAVE		; master/slave
+		ORA #%10100000		; use CHS
 		LDX #IDE_Head
 	} else {
 		LDA lbawork+0
@@ -826,7 +743,8 @@ RDYLoop		LDX #IDE_Status
 		JSR WriteIDERegister
 		LDA lbawork+3
 		AND #%00001111
-		ORA #%11100000		; always master, use LBA
+		ORA MASTERSLAVE		; master/slave
+		ORA #%11100000		; use LBA
 		LDX #IDE_Head
 	}
 ;!!! 		JSR WriteIDERegister
@@ -873,10 +791,4 @@ tmpgrirqen	=*+2	;!byte 0
 tmpPS		=*+3	;!byte 0
 tmpclkreg	=*+4	;!byte 0
 tmpCPU_DATA	=*+5	;!byte 0
-;~9610
-dir3Head	=$9700
-dir4Head	=$9800
-dir5Head	=$9900
-dir6Head	=$9a00
-dir7Head	=$9b00
-dir8Head	=$9c00
+memSectorBAM	=*+6	;!byte 0	;$00 or $e0-$ff
