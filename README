@@ -27,6 +27,7 @@ ide-ward-sch.gif
 src/
     Here is source code of CIA-IDE usage examples
     ACME crossassembler needed
+    Note that this stuff is outdated comparing to GEOS below.
 
 geos/
     Complete solution for using HDD as described here with GEOS64/128 2.0
