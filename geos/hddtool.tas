@@ -14,6 +14,10 @@
 
 ;LOOKOUT: non-settable constants in driver, search for <---,!!!
 ;LOOKOUT: MASTERSLAVE unimplemented, always set to MASTER
+;BUG: severe problems with $01 on C64, Read/WriteIDE Register should be protected,
+;     same with cia3 accesses, for the rest app should run on system default memconfig
+;     this has low impact on performance as disk driver is used to format, only
+;     autoconfig/detection is done via own routines
 
 ;constant value
 HDD_PARTITIONSIZE_L	= $ff00
@@ -39,6 +43,7 @@ MBR_OFFS_LAST		= $1a
 !source "inc/jumptab.inc"
 !source "inc/diskdrv.inc"
 !source "inc/geossym.inc"
+!source "inc/geossym2.inc"
 !source "inc/geosmac.acme.inc"
 !source "inc/ide3.inc"
 
@@ -91,7 +96,7 @@ diskname	!text "HDD DISK #",0	; default diskname after erasing
 
 ; top level menu
 appMenu		!byte 0, 15
-		!word 0, 120		; 90 is ideal for 40
+appMenuRight	!word 0, 120		; 90 is ideal for 40
 		!byte 2 | HORIZONTAL
 
 		!word geosTxt
@@ -167,7 +172,7 @@ clearscreen	!byte MOVEPENTO
 		!byte 0
 		!byte NEWPATTERN, 2
 		!byte RECTANGLETO
-		!word 319 | DOUBLE_W 
+clrscr_wide	!word 319 | DOUBLE_W 
 		!byte 199
 		!byte NULL
 
@@ -329,6 +334,13 @@ ExitNow		RTS
 ;--------------------------------------
 notAutoExec	; program entry for interactive usage (non auto-exec)
 		JSR UpdateMenusOpts
+		LDA c128Flag
+		BNE isC128
+		LDA clrscr_wide+1
+		AND #%00000001				; clear shitty stuff for GEOS64
+		STA clrscr_wide+1
+		+LoadB appMenuRight, 90			; fix for 40 columns
+isC128
 		+LoadW r0, clearscreen
 		JSR GraphicsString
 		+LoadW r0, appMenu
