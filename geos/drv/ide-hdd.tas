@@ -557,13 +557,10 @@ PutDH_End	JMP DoneWithIO
 __GetDirHead	JSR SetDirHead
 		JSR InitForIO
 		JSR ReadBlock
-;		+LoadB memSectorBAM, $00	; no BAM sector loaded
-;--------debug
 		+LoadB memSectorBAM, HDD_DIR_BAM1ST
 		STA r1H
 		+LoadB r4H, >dir2Head
-		JSR ReadBlock			;get BAM (debug)
-;--------debug
+		JSR ReadBlock			;get BAM
 		JMP DoneWithIO
 ;---------------------------------------
 _WriteBuff	JSR SetBufVector
