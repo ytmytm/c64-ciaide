@@ -4,7 +4,7 @@ license.
 
 CIA-IDE.txt
     HOWTO connect IDE device to C64/128 using an additional port IC:
-    6526 or 8255
+    6526 or 8255, full description and schematics included
 
 8255-IDE.txt
     HOWTO connect IDE device to 8255 port IC, also more detailed
@@ -12,6 +12,9 @@ CIA-IDE.txt
 
 ATA2-EIDE.txt
     Full and detailed description of ATA-2 standard
+
+IDE-ANNOUNCEMENT
+    Initial announcement about this project
 
 ide-8255-sch.gif
 ide-ruud-c64.gif
