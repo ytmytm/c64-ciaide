@@ -59,7 +59,7 @@ not using InstallDriveD just place my installer right after Configure in
 the disk directory.
 
 If you don't have REU but you do use two different kinds of disk drives
-(like me: 1571+2*1541) you will need my patched versuib DeskTop 128 to be
+(like me: 1571+2*1541) you will need my patched version of DeskTop 128 to be
 able to get to drive C. It can be found at
 ftp://ftp.elysium.pl/tools/geos_software/updates/
 
