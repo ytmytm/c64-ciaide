@@ -1,4 +1,12 @@
 
+COPYRIGHT
+Source code of GEOS driver for CIA-IDE, installer and tools is covered by
+GNU GPL license.
+Specifically it means that you are free to modify it to other flavours of IDE
+interfaces for Commodore or even other 8-bit 6502 computers but you MUST
+provide source code of your changed version.
+
+
 REQUIREMENTS/COMPATIBILITY
 For compiling the stuff, you need ACME, a free cross-assembler.
 
