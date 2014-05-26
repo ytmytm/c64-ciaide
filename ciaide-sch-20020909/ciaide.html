@@ -1,0 +1,165 @@
+<html>
+<head>
+<meta name="Author" content="Maciej Witkowiak">
+<meta name="Description" content="YTM homepage">
+<meta name="Generator" content="ViM">
+<meta name="KeyWords" content="ytm,workshop,commodore,cbm,c128,c64,geos,geos2000,burst,ramcart,ramcard,expansion,linux,lunix,kde,windowmaker,window manager,X,link,links,convert,converter,locale,language,i18n,sex,pussy,teens">
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-2">
+<title>WORKSHOP - CIA-IDE - IDE interface for C64/128</title>
+</head>
+<body text="black" bgcolor="white" link="#0080ff" vlink="blue" alink="#8000ff">
+
+<center><h2>Introduction</h2></center>
+I always wanted to have a harddrive in my C64 and then in my C128. First, in 1998 when I just
+started my adventure with electronics (adventure with programming 6502 started 4 years earlier :),
+a friend sent me documents about connecting ancient PC MFM harddisk controller to C64.
+Unfortunately I've never seen any disk like that. About a year later when I finally had access
+to the Internet I used search engines to find something about connecting harddisk to an 8-bit
+computer. There were many projects, and I slowly started to examine them one by one.
+<p>
+Most of them worked flawlessly on C64, but all of them failed on C128. I don't know why, maybe
+it is slightly different bus timing or something like that (IDE bus is not 100% compatible with
+C64/128 address/data bus). Anyway I admitted failure and resigned from high performance transfer
+in favour of reliability. I returned to the very first project I have found - driving IDE bus
+with additional port chip. In C64/128 case the easiest and fastest way is to connect additional
+CIA chip, that is CIA#3.
+
+
+<center><h2>Building</h2></center>
+Building that interface is very simple. For a C128 you need <b>only</b> CIA 6526 and some wires,
+C64 version needs additional TTL chip unless you will use I/O1 or I/O2 signals from cartridge port,
+but that might cause problems with extra hardware on the cartridge port.
+<p>
+You should better download the archive below and read CIA-IDE.txt file, but here is a better looking
+version of schematic. <a href="ciaide.pdf">Grab PDF here</a>. PDF has
+better quality than the image below.
+<p>
+<center><img src="ciaide.png"></center>
+<p>
+/CIA3 signal comes from the address decoder. Resistors and LED are optional (in fact I don't have them
+in my circuit). I'm not sure if LED orientation on the schematic is correct :)
+
+<center><h2>Address Decoder</h2></center>
+This is required for C64 and might be needed for C128. An address decoder is just additional IC
+that will split I/O address space into smaller pieces. VIC is visible in $d000-$d3ff area but
+everything above $d03f is just a mirror of the first 64 registers. Similarily, SID is accessible
+in $d400-$d7ff area but has only 32 registers. You can take over that address space and split it
+into 8 smaller pieces, each one of 256 bytes.
+<p>
+<p><b>These numbers (chips and pins) are only for C64!</b>
+Get VIC (U7) chip out of the socket and bend pin 10 up. Do the same with SID
+(U9) and its pin 8. Connect two wires to those bended pins. Connect also
+another two wires to the corresponding pins on the board - in sockets. You may
+try to trace the tracks and find more comfortable place to solder. If not
+then the solder side of the board will be the safest choice.
+<p><b>These numbers (chips and pins) are only for C128!</b>
+VIC is U21, its /CS signal is on pin 13. Instead of soldering to the VIC socket you may
+use U11 pin 42 - this is the very same signal. SID is U6, its /CS signal is on pin 8,
+board side signal can be found on U3 pin 15. The rest is similar to C64.
+<p>
+When you'll get those 4 signals connect them as on the picture below:
+<center><img src="c64-address-decoder.png"></center>
+<p>
+/CS lines are on those bent pins and A8/A9 lines can be taken from CPU (U6)
+pins 15 and 16 (respectively). On C128 you should better use A8/A9 from one
+of ROMs or Expansion Port because of MMU interference.
+<p>
+Don't forget to connect power (VCC to pin 16 and GND to pin 8) for the new chip!
+<p>
+As you see you get 5 I/O page signals - for $D100, $D200, $D300, $D500,
+$D600 and $D700. Pages $D5, $D6 or $D7 are generally a good place for
+connecting second SID - you just solder one SID on another, without
+pins 1-4 and 8. Then you solder two capacitors to pins 1-2 and 3-4
+and /CS line from our address decoder to pin 8. If you want to have
+a stereo SID then don't solder pins 27 together and build a copy of
+amplifier from the board. You might also not solder pins 23 and 24
+because these are POTX and POTY and might be used to mesaure resistance.
+<p>
+Instead of SID and VIC you could also use CIA#1 and CIA#2, but these are usually not
+socketed. /CS signal in CIA is on pin 23. This way you would get slices of 64 bytes
+each - 4 on page $DC00 and 4 on page $DD00.
+<p>
+Choose one of /Dx00 lines and use it as /CIA3 signal.
+
+
+<center><h2>Download</h2></center>
+<p>
+Use local copy of archive (25.07.2002)
+for latest documents and program sources. You will find there comprehensive information about
+CIA-IDE, other possible hardware solutions and working examples of software, together with
+full source code of GEOS driver and installer.
+<p>
+Here are <a href="ciaide-20020725-binary.tar.gz">prebuilt binaries or GEOS driver (25.07.2002)</a>.
+These are ready for use with GEOS64+IDE64 or GEOS128+CIAIDE.
+<p>
+Here is <a href="ciaide-20040911-ide64.tar.gz">updated IDE64 driver (11.09.2004)</a>. It works with
+VICE 1.15 IDE64 emulation and comes in two versions - for master and slave device, thus it should
+be possible to have master disk for IDE64 native stuff and slave only for GEOS.
+
+
+<center><h2>Software</h2></center>
+Even the best hardware is nothing without the software. I built this interface mostly for use
+with GEOS, and so GEOS driver for both GEOS64 and GEOS128 v2.0 is included (you can find it at
+address above). It is built-in into an auto-executable installer/configure program. For the
+first time you must run it manually, from DeskTop, after configuring and formatting the disk it
+will be enough to put it on the boot floppy so it will be seen right after Configure program.
+<p>
+Due to memory problems the driver needs RAM expansion on a bare C64. It can be either REU or
+internal RAM of IDE64 interface.
+<p>
+Source code for all utilities is available under GNU GPL license, so if you have already
+an IDE interface you can easily adapt it.
+<p>
+As for now only Master disk on the IDE bus is supported.
+
+
+<center><h2>Usage</h2></center>
+The configuration program will try to determine the size of disk and divide it into
+16MB partitions. Note that these partitions are not the ones known from PC. All data on the disk
+will be lost. Each partition will be seen from GEOS as a separate disk, but you can't have
+currently two partitions as two different devices under GEOS. Always only one is active. There
+is a DeskAccessory that can switch partitions at any time.
+<p>
+Read the docs for more details.
+<p>
+Because of my laziness I have only 8-bit interface so half of disk is always lost, but even taking
+20MB from a 40MB drive is a lot of space for use.
+
+
+<center><h2>Notes</h2></center>
+There are other similar projects. If you want a complete solution you should buy CMD drives (rather
+expensive) or less expensive IDE64 interface. For cheap but very compatible solution try IECATA.
+
+<center><h2>Photos</h2></center>
+Here are some photos of my setup. Click to enlarge.
+<p>
+General view of my C128 interiors with everything installed. On the bottom left you can see
+circuits for 256KB expansion and address decoder. On the top left there is Conner 40MB hard disk.
+As you see it is powered by C128 power supply. It worked without any problems with WD 2500MB disk.
+<br><center><a href="ciaide-full.jpg"><img src="tt-ciaide-full.jpg" alt="CIAIDE - full install"></a></center>
+<p>
+Now similar view to previous one, but with disk removed.
+<br><center><a href="ciaide-wodisk.jpg"><img src="tt-ciaide-wodisk.jpg" alt="CIAIDE - without disk"></a></center>
+<p>
+Closeup of the third CIA. As you see the chip socket is soldered directly to CIA1 and a short IDE cable
+leads to the IDE socket.
+<br><center><a href="../gfx/photos/ciaide-closeup.jpg"><img src="../gfx/photos/tt-ciaide-closeup.jpg" alt="CIAIDE - closeup"></a></center>
+<p>
+
+<center<h2>Important note for IDE64 users</h2></center>
+Filesystem provided by this GEOS driver <b>is not</b> compatible with IDE64 native filesystem.
+This means that you can't share the disk between the two and you can't copy data without intermediate
+medium (like a floppy). Use it with care, but remember that only master disk is supported by
+my software, so it should be possible to have to drives - master for GEOS and slave for IDE64.
+<p>
+Anyway I think you will find this <a href="ide64rtc-geos.tar.gz">auto-exec for IDE64</a> 
+useful. It is a little program that you should put on your boot disk. Every time you start GEOS
+it will read the time from RTC onboard IDE64 and set the system time and date.
+
+<center><h2>Last words</h2></center>
+Please contact me if you build this interface. I would like to hear your comments, answer to your
+questions, maybe solve your problems or fix bugs in software.
+
+
+</body>
+</html>
