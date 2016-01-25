@@ -10,6 +10,7 @@ provide source code of your changed version.
 
 REQUIREMENTS/COMPATIBILITY
 For compiling the stuff, you need ACME, a free cross-assembler.
+http://sourceforge.net/projects/acme-crossass/
 
 You need an IDE interface, it can be CIA-IDE as described in my articles elsewhere.
 By default this source code expects that it can be found at $D300 I/O page. You
