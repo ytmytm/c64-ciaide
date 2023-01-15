@@ -13,6 +13,7 @@
 ;23.07.02 - even bigger partitions (16MB)
 ;24.07.02 - IDE64 8-bit support, C64 support (haven't I ever test it???)
 ;25.07.02 - full IDE64 8-bit support, C64 support fixed
+;15.01.23 - SD card adapter support, check for error & drq bit at the same time
 
 ;LOOKOUT: non-settable constants in driver, search for <---,!!!
 ;LOOKOUT: MASTERSLAVE unimplemented, always set to MASTER
@@ -265,7 +266,7 @@ about1	    	!text BOLDON, "HDDTool for IDE64 interface", 0
 	} else {
 about1		!text BOLDON, "HDDTool and IDE interface", 0
 	}
-about2		!text "by Maciej Witkowiak, VII 2002", 0
+about2		!text "by Maciej Witkowiak, I 2023", 0
 
 spindown1	!text BOLDON, "Number of 5s. units to poweroff:", 0
 
@@ -938,7 +939,11 @@ ReadAutoConfig	JSR SetMBRParams
 		JSR WaitIDEBusy
 .drqlp		LDX #IDE_Status		; wait for DRQ
 		JSR ReadIDERegister
-		AND #%00001000
+		TAX
+		AND #%00000001
+		BNE .rdautfound		; error?
+		TXA
+		AND #%00001000		; loop if not DRQ and not error
 		BEQ .drqlp
 
 		LDY #0
@@ -972,8 +977,13 @@ ReadMBR_2	LDX #IDE_Command
 
 .drqloop	LDX #IDE_Status		; wait for DRQ
 		JSR ReadIDERegister
+		TAX
+		AND #%00000001		; error?
+		BNE .drqend
+		TXA
 		AND #%00001000
 		BEQ .drqloop		; should never do more than once if waiting for BUSY above
+.drqend
 
 		LDY #0
 .readdata	LDX #IDE_Data		; fetch the data
@@ -1004,8 +1014,13 @@ WriteMBR	JSR SetMBRParams
 
 .drqloop	LDX #IDE_Status		; wait for DRQ
 		JSR ReadIDERegister
+		TAX
+		AND #%00000001		; error?
+		BNE .drqend
+		TXA
 		AND #%00001000
 		BEQ .drqloop
+.drqend
 
 		LDY #0
 .writedata	LDX #IDE_Data
@@ -1037,6 +1052,10 @@ CheckLBA	JSR SetMBRParams	; set CHS params (0/0/1)
 
 .drqloop	LDX #IDE_Status		; wait for DRQ
 		JSR ReadIDERegister
+		TAX
+		AND #%00000001		; error?
+		BNE .loopend
+		TXA
 		AND #%00001000
 		BEQ .drqloop
 
@@ -1045,6 +1064,7 @@ CheckLBA	JSR SetMBRParams	; set CHS params (0/0/1)
 		JSR ReadIDERegister
 		INY
 		BNE .readdata
+.loopend
 		JSR HandleError		; if was error - it was address error
 		+beqx .end
 		AND #%00010000		; should be IDNotFound error, sector not there

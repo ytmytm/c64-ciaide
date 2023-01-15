@@ -154,8 +154,13 @@ __ReadBlock	JSR InitForHDD
 
 Read_Lp0	LDX #IDE_Status		; wait for DRQ
 		JSR ReadIDERegister
+		TAX
+		AND #%00000001
+		BNE Read_DRQend
+		TXA
 		AND #%00001000
 		BEQ Read_Lp0		; should never do more than once
+Read_DRQend
 
 		LDY #0
 Read_Lp1	LDX #IDE_Data
@@ -196,8 +201,13 @@ __WriteBlock	JSR InitForHDD
 
 Write_Lp0	LDX #IDE_Status		; wait for DRQ
 		JSR ReadIDERegister
+		TAX
+		AND #%00000001
+		BNE Write_DRQend
+		TXA
 		AND #%00001000
 		BEQ Write_Lp0
+Write_DRQend
 
 		LDY #0
 Write_Lp1	LDX #IDE_Data

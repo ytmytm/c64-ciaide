@@ -80,11 +80,11 @@ ProgType		= AUTO_EXEC		;GEOS executable filetype
 						;SEQUENTIAL files
 						
 			!byte ProgType		;GEOS filetype
-			!byte 02		;*year
-			!byte 07		;*month
-			!byte 25		;*day
-			!byte 17		;*hour
-			!byte 20		;*minute
+			!byte 23		;*year
+			!byte 01		;*month
+			!byte 15		;*day
+			!byte 18		;*hour
+			!byte 15		;*minute
 			
 			!word NULL		;size in blocks, should be
 						;fixed by converter
@@ -139,7 +139,7 @@ ProgType		= AUTO_EXEC		;GEOS executable filetype
 			!fill ((.tmp+12)-*),$20	;name padding
 			}
 			
-			!text "V1.0"		;*version number ('V',major,'.',minor)
+			!text "V1.1"		;*version number ('V',major,'.',minor)
 			!byte NULL		;string termination
 			
 			!word NULL
