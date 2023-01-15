@@ -195,6 +195,8 @@ Congratulations! The interface is complete and ready to use.
 
 ## CIA 8BIT INTERFACE (C128)
 
+* 2023 update: see also this project https://github.com/ytmytm/c128-u3-replacement *
+
 In C128 address decoding can be done easier.
 
 Instead of using /IO1, or /IO2, or making internal decoder (which is generally
