@@ -17,6 +17,8 @@
 ;LOOKOUT: non-settable constants in driver, search for <---,!!!
 ;LOOKOUT: MASTERSLAVE unimplemented, always set to MASTER
 
+; CIA#3 base address set in inc/ide3.inc
+
 ;constant value
 HDD_PARTITIONSIZE_L	= $ff00
 HDD_PARTITIONSIZE_H	= 0

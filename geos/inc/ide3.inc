@@ -3,7 +3,7 @@
 ; 05.08.2001
 ; by Maciej 'YTM/Elysium' Witkowiak
 
-cia3base	= $d300
+cia3base	= $dc20
 cia3pa		= cia3base	; control port bits, straight connection, no inverters
 cia3pb		= cia3base+1	; lower 8 bits data port
 cia3ddra	= cia3base+2	; data direction of port A, always output ($ff)
