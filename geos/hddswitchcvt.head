@@ -16,9 +16,9 @@
 !source "inc/printdrv.inc"
 
     !if (machine=64) {
-	!to "hddswitch64.cvt"
+	!to "hddswitch64.cvt",cbm
     } else {
-	!to "hddswitch128.cvt"
+	!to "hddswitch128.cvt",cbm
     }
 
 ;-----------------------------------------------------------------------
@@ -62,7 +62,7 @@ ProgType		= DESK_ACC		;GEOS executable filetype
 			;!byte USR | $80
 			;!word 0
 			
-			!subzone DOS_filename {
+			!zone DOS_filename {
 			
 		.tmp=*
 		!if (machine=64) {
@@ -132,7 +132,7 @@ ProgType		= DESK_ACC		;GEOS executable filetype
 			!word ProgEnd		;end address (essencial for DESK_ACC)
 			!word ProgExec		;execute address
 			
-			!subzone GEOSClass {
+			!zone GEOSClass {
 			
 		.tmp=*
 			!text "HDD switch"	;*class name (up to 12 chars)
@@ -156,7 +156,7 @@ ProgType		= DESK_ACC		;GEOS executable filetype
 ; 1  0  - DOES NOT RUN under 128 GEOS (deskTop will display dialog box)
 ; 1  1  - runs under 128 GEOS in 80 column mode only
 
-			!subzone GEOSAuthor	{
+			!zone GEOSAuthor	{
 		.tmp=*
 			!text "Maciej Witkowiak";*author's name (up to 63 chars)
 			!byte NULL		;string termination
@@ -164,7 +164,7 @@ ProgType		= DESK_ACC		;GEOS executable filetype
 			!fill ((.tmp+63)-*),$00	;name padding
 			}
 
-			!subzone GEOSNote	{
+			!zone GEOSNote	{
 		.tmp=*
 			;*usage note (up to 95 chars)
 			!text "This DA will switch partitions "
@@ -179,7 +179,7 @@ ProgType		= DESK_ACC		;GEOS executable filetype
 
 
 			!zone SourceCode			
-			!pseudopc ProgStart
+			!pseudopc ProgStart {
 			NOP			; to fill-in removed loadadress
 			NOP
 	    !if (machine=64) {
@@ -190,4 +190,4 @@ ProgType		= DESK_ACC		;GEOS executable filetype
 
 ProgEnd= *+1					;this label have to be at the end
 
-			!realpc
+			}

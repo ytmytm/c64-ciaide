@@ -13,6 +13,6 @@
 
 !set useCHS		= 1			; 0 - true, !=0 false
 
-!to "idehdd-lba.bin"
+!to "idehdd-lba.bin",cbm
 			*=DISK_BASE
 !source "drv/ide-hdd.tas"

@@ -55,9 +55,9 @@ MBR_OFFS_LAST		= $1a
 ;!set useCHS		= 0			; 0 - true, !=0 false
 
     !if (machine=64) {
-	!to "hddtool.64"
+	!to "hddtool.64",cbm
     } else {
-	!to "hddtool.128"
+	!to "hddtool.128",cbm
     }
 
 ;swapLength	= 12	; this includes the last page (e.g. 13->$9Dxx will be swapped too)

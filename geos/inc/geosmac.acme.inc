@@ -58,7 +58,7 @@
 	    !if (>.value)=0 {
 		bcc .j
 		inc .dest+1
-		.j
+.j
 	    } else { 	 
 		lda #>.value
 		adc .dest + 1
@@ -108,14 +108,14 @@
 	    +CmpB .source+1, .dest+1
 	    bne .j
 	    +CmpB .source+0, .dest+0
-	.j
+.j
 	}
 	    
 	!macro CmpWI .source, .immed {
 	    +CmpBI .source+1, >.immed
 	    bne .j
 	    +CmpBI .source+0, <.immed
-	.j
+.j
 	}
 	
 	!macro PushB .source {
@@ -180,7 +180,7 @@
 	    pla
 	    plp
 	    +bra .addr
-	.j	
+.j	
 	    pla
 	    plp
 	}
@@ -210,7 +210,7 @@
 	    pla
 	    plp
 	    +bra .addr
-	.j	
+.j	
 	    pla
 	    plp
 	}

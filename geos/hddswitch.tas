@@ -30,9 +30,9 @@
 !cpu 6502
 
     !if (machine=64) {
-	!to "hddswitch.64"
+	!to "hddswitch.64",cbm
     } else {
-	!to "hddswitch.128"
+	!to "hddswitch.128",cbm
     }
 
 		*=$1000+2
