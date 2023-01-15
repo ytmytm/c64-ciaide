@@ -1,5 +1,6 @@
 
-COPYRIGHT
+# COPYRIGHT
+
 Source code of GEOS driver for a IDE interface (CIAIDE or IDE64), installer
 and tools is covered by GNU GPL license.
 
@@ -8,13 +9,14 @@ interfaces for Commodore or even other 8-bit 6502 computers but you MUST
 provide source code of your changed version.
 
 
-REQUIREMENTS/COMPATIBILITY
-For compiling the stuff, you need ACME, a free cross-assembler.
+# REQUIREMENTS/COMPATIBILITY
+
+For compiling the stuff, you need ACME, a free cross-assembler version 0.97 or later.
 http://sourceforge.net/projects/acme-crossass/
 
 You need an IDE interface, it can be CIA-IDE as described in my articles elsewhere.
-By default this source code expects that it can be found at $D300 I/O page. You
-can change this by editing proper lines in inc/ide3.inc file.
+By default this source code expects that it can be found at $DC20 I/O page. You
+can change this by editing proper lines in `inc/ide3.inc` file.
 You may also use IDE64 interface, but BE SURE TO READ IMPORTANT NOTE BELOW.
 
 This source code uses 8-bit interface only.
@@ -26,27 +28,35 @@ loss of data. Cylinder/Head/Sector numbers are needed also for LBA-capable drive
 just to measure their size.
 Currently only MASTER device is adressed on IDE cable.
 
-
 Supported platforms: GEOS 2.0 64/128 and...
+
+```
 C64/128 with REU
     - no problems.
+
 C128 without REU and up to 2 different types of drives (e.g. 1571+1541 or 2*1571+1541)
     - no problems.
+
 C64 without REU
     - memory expansion is required, currently supported are:
 	+60K
 	RamCart 64/128K
 	IDE64 internal RAM
+```
 
 
+# CONFIGURATION
 
-CONFIGURING
-Edit config.inc and put correct machine value there (64 or 128).
+Edit `config.inc` and put correct machine value there (64 or 128).
+
 Set there also correct type of IDE interface (IDE64 or CIAIDE).
 Check out additional config options which are depended on these two values.
 
+In `inc/ide3.inc` you can set base address for CIA#3.
 
-IMPORTANT NOTE FOR IDE64 OWNERS!!! BLAME YOURSELF IF YOU DIDN'T READ IT!!!
+
+# IMPORTANT NOTE FOR IDE64 OWNERS!!! BLAME YOURSELF IF YOU DIDN'T READ IT!!!
+
 Filesystem used by this software is totally incompatible with native IDE64
 one, so:
 - you can't access IDE64 data from GEOS and vice-versa
@@ -62,15 +72,16 @@ After power-on IDE64 ROM might hang while identifying hard disk. If it happens -
 press RUN/STOP+RESTORE.
 
 
-COMPILING
-Do: make
-and correct .cvt files will be built and saved in compiled/ directory
-Do: make clean
-to remove all built files
+# COMPILING
+
+Do: `make` and correct .cvt files will be built and saved in compiled/ directory
+
+Do: `make clean` to remove all built files
 
 
 
-INSTALL
+# INSTALLATION
+
 Now you can transfer the resulting files to Commodore world and unConvert it
 with Convert v2.5 or GeoConvert98.
 Or you may use c1541 and geoswrite command to put unconverted file
@@ -91,7 +102,8 @@ HDDSwitch is for changing virtual partitions, it is a DeskAccessory
 
 
 
-USAGE
+# USAGE
+
 hddtool.{64|128} will help you to configure your HDD partitions and will install
 HDD driver if necessary (it will be necessary on boot :).
 Information about disk structure is saved in the very first sector of hard disk.
@@ -114,7 +126,8 @@ system.
 
 
 
-PARAMETERS
+# PARAMETERS
+
 Disk driver in its current state takes the first sector to store configuration
 variables. The rest of the disk is divided into partition-like virtual disks
 (called 'partition' over this document) that you can change while running GEOS.
@@ -123,6 +136,7 @@ there is 16192KB of free space. There are 65536 partitions available for total
 amount of 1012GB (physically it would be 2024GB because of 8bit interface).
 This is more than any ATA-3 IDE disk will ever have. Standard limits the size
 to 128GB.
+
 Note that you can't use disk smaller than 32MB to hold one 16MB partition
 with 8bit interface.
 
@@ -135,12 +149,14 @@ Anyway it doesn't seem to be much slower than RAM disk without DMA at 2MHz
 (e.g. geoRAM) and it is way faster than 1541/71.
 
 
-DISK STRUCTURE
+# DISK STRUCTURE
+
 Tracks are numbered from 1 to 255. Sectors are numbered from 0 to 255.
 Disk driver contains current partition size (now always $0000FF00) and
 offset from start of disk to start of current partition. Within partition
 layout is as below:
 
+```
 sector offset
 $00000000	track 1, sector 0
 $000000FF	track 1, sector 255
@@ -149,6 +165,7 @@ $00000100	track 2, sector 0
 $00001100	track 18, sector 0
 ...
 $0000FEFF	track 254, sector 255
+```
 
 Directory occupies whole track 18. (18,0) is the usual directory header, as in
 1541. It contains link to (18,1) where file descriptions are stored.
