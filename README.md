@@ -1,29 +1,13 @@
-CIA-IDE - ATA IDE interface for C64/128
-===================================
+# CIA-IDE - ATA IDE interface for C64/128
 
 Maciej Witkowiak
 YTM/Elysium
 ytm@elysium.pl
 12.11.1999-14.08.2001
 
-#TABLE OF CONTENTS
 
-ABOUT
-DISCLAIMER
-NAMING CONVENTION
-THE POWER
-THE INTERFACE (COMMON PART)
-CIA 8BIT INTERFACE (C64)
-CIA 8BIT INTERFACE (C128)
-CIA 16 BIT VERSION
-8255 INTERFACE
-IRQ/NMI
-ABOUT PROGRAMMING IDE
-PINOUTS (IDE, CHIPS)
+## ABOUT
 
-
-
-#ABOUT
 This file contains complete solution for building IDE interface for
 C64 or C128. I used here the most basic approach to interfacing IDE
 with C64. There are also other interfaces that connect IDE device
@@ -50,7 +34,8 @@ ftp://ftp.elysium.pl/docs/schematics/
 
 
 
-#DISCLAIMER
+## DISCLAIMER
+
 I take no responsibility for any damage, data loss or any other
 disaster you might encounter while building and/or using this
 interface. It worked for me and should work for any other smart
@@ -58,12 +43,14 @@ monkey.
 
 
 
-#NAMING CONVENTION
+## NAMING CONVENTION
+
 74'139 means 74LS139 or 74HC139 or 74HCT139. CIA means 6526 IC, CIA#3 means the
 additional 6526 that you are about to add to your computer.
 
 
-#THE POWER
+## THE POWER
+
 You'll have to find a power source capable of +5V and +12V. It's up to you to
 build or buy such a thing. C128D owners are lucky - original heavy duty power
 supply is just OK.
@@ -86,7 +73,8 @@ always connect red-to-red.
 
 
 
-#THE INTERFACE (COMMON PART)
+## THE INTERFACE (COMMON PART)
+
 Basically the interface consits of port IC (it may be 8255 or CIA 6526 or
 any other port IC) with at least 16 data lines and its wiring to C64/128
 I/O space. Port's data lines are hooked directly to IDE 40pin socket.
@@ -103,7 +91,8 @@ a 74'139 and/or 2*74'04.
 
 
 
-#CIA 8BIT INTERFACE (C64)
+## CIA 8BIT INTERFACE (C64)
+
 Description is for C64, differences with C128 are described in next part.
 
 You need a CIA 6526 IC. Bend up pins 2-18, 23, 24, 39, 40 and solder the rest
@@ -204,7 +193,8 @@ Congratulations! The interface is complete and ready to use.
 
 
 
-#CIA 8BIT INTERFACE (C128)
+## CIA 8BIT INTERFACE (C128)
+
 In C128 address decoding can be done easier.
 
 Instead of using /IO1, or /IO2, or making internal decoder (which is generally
@@ -221,7 +211,8 @@ interference in this part of the bus.
 
 
 
-#CIA 16 BIT VERSION
+## CIA 16 BIT VERSION
+
 A place to solder upper 8 bits of data is needed. The most obvious choice is
 to use CIA#1 or CIA#2 ports. CIA#2 port B seems to be the best - it is not
 used by system. CIA#2 port A is used for disk drive communication and cannot
@@ -237,7 +228,8 @@ you already know pin numbers of CIA ports A and B.
 
 
 
-#8255 INTERFACE
+## 8255 INTERFACE
+
 This part is only about interfacing 8255 with C64/128. The rest is exactly
 the same as in P. Faasse's article.
 
@@ -290,7 +282,8 @@ inverter for control, port B for lower 8 bits, port C for upper 8 bits.
 
 
 
-#IRQ/NMI
+## IRQ/NMI
+
 IDE device (be it hard disk drive or CD-ROM) can issue interrupt request upon
 completing the command. I didn't even try to do it because I see very low
 usage of this.
@@ -299,13 +292,14 @@ untested.
 
 
 
-#ABOUT PROGRAMMING IDE
+## ABOUT PROGRAMMING IDE
+
 See example files included in archive together with this document.
 Always check errors and status flags before doing anything.
 
 
 
-#PINOUTS
+## PINOUTS
 
 IDE connector
 (see P. Faasse's article for full description of pins, information here should be
